@@ -1,0 +1,30 @@
+cat > .gitignore <<'EOF'
+.codex
+# binaries
+bin/
+dist/
+*.exe
+*.out
+server
+
+# Go
+.coverprofile
+
+# env / local config
+.env
+.env.*
+*.local
+
+# logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+EOF
+
+configs/config.yaml

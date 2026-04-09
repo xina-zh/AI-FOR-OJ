@@ -1,0 +1,60 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        GOPROXY: https://goproxy.cn,direct
+        GOSUMDB: sum.golang.google.cn
+    container_name: ai-for-oj-app
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      APP_ENV: docker
+      APP_NAME: ai-for-oj
+      HTTP_HOST: 0.0.0.0
+      HTTP_PORT: 8080
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: ai_for_oj
+      DB_PARAMS: charset=utf8mb4&parseTime=True&loc=Local
+      DB_AUTO_MIGRATE: "true"
+      DB_INIT_MAX_RETRIES: 20
+      DB_INIT_RETRY_INTERVAL: 3s
+      SANDBOX_WORK_DIR: /tmp/ai-for-oj-sandbox
+      SANDBOX_DOCKER_IMAGE: gcc:13
+      SANDBOX_COMPILE_TIMEOUT: 10s
+      SANDBOX_RUN_TIMEOUT_BUFFER: 500ms
+      SANDBOX_COMPILE_MEMORY_MB: 512
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/ai-for-oj-sandbox:/tmp/ai-for-oj-sandbox
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.4
+    container_name: ai-for-oj-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: ai_for_oj
+      MYSQL_ROOT_HOST: "%"
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+volumes:
+  mysql_data:

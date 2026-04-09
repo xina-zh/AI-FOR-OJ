@@ -1,0 +1,21 @@
+package model
+
+type ExperimentRun struct {
+	CreatedModel
+
+	ExperimentID uint         `gorm:"column:experiment_id;not null;uniqueIndex:idx_run_attempt;index" json:"experiment_id"`
+	SubmissionID *uint        `gorm:"column:submission_id;index" json:"submission_id,omitempty"`
+	AttemptNo    int          `gorm:"column:attempt_no;not null;uniqueIndex:idx_run_attempt" json:"attempt_no"`
+	FinalVerdict string       `gorm:"column:final_verdict;type:varchar(32);not null;index" json:"final_verdict"`
+	TokenInput   int64        `gorm:"column:token_input;not null" json:"token_input"`
+	TokenOutput  int64        `gorm:"column:token_output;not null" json:"token_output"`
+	LatencyMS    int          `gorm:"column:latency_ms;not null" json:"latency_ms"`
+	ToolCalls    int          `gorm:"column:tool_calls;not null" json:"tool_calls"`
+	Experiment   Experiment   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"experiment,omitempty"`
+	Submission   *Submission  `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;" json:"submission,omitempty"`
+	TraceEvents  []TraceEvent `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"trace_events,omitempty"`
+}
+
+func (ExperimentRun) TableName() string {
+	return "experiment_runs"
+}
