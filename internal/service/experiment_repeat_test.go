@@ -1,0 +1,251 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"ai-for-oj/internal/model"
+	"ai-for-oj/internal/repository"
+)
+
+type fakeExperimentRepeatRepository struct {
+	created *model.ExperimentRepeat
+	updated *model.ExperimentRepeat
+	getByID *model.ExperimentRepeat
+	nextID  uint
+	err     error
+}
+
+func (r *fakeExperimentRepeatRepository) Create(_ context.Context, repeat *model.ExperimentRepeat) error {
+	if r.err != nil {
+		return r.err
+	}
+	if r.nextID == 0 {
+		r.nextID = 1
+	}
+	repeat.ID = r.nextID
+	repeat.CreatedAt = time.Now().UTC()
+	repeat.UpdatedAt = repeat.CreatedAt
+	copied := *repeat
+	r.created = &copied
+	return nil
+}
+
+func (r *fakeExperimentRepeatRepository) Update(_ context.Context, repeat *model.ExperimentRepeat) error {
+	if r.err != nil {
+		return r.err
+	}
+	repeat.UpdatedAt = time.Now().UTC()
+	copied := *repeat
+	r.updated = &copied
+	r.getByID = &copied
+	return nil
+}
+
+func (r *fakeExperimentRepeatRepository) GetByID(_ context.Context, repeatID uint) (*model.ExperimentRepeat, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.getByID == nil || r.getByID.ID != repeatID {
+		return nil, repository.ErrExperimentRepeatNotFound
+	}
+	return r.getByID, nil
+}
+
+func TestExperimentRepeatServiceRepeat(t *testing.T) {
+	repo := &fakeExperimentRepeatRepository{}
+	runner := &fakeExperimentRunner{
+		runOutputs: []*ExperimentOutput{
+			{
+				ID:                  10,
+				Name:                "round-1",
+				Model:               "mock-cpp17",
+				TotalCount:          2,
+				SuccessCount:        2,
+				ACCount:             1,
+				FailedCount:         1,
+				VerdictDistribution: VerdictDistribution{ACCount: 1, WACount: 1},
+				Status:              ExperimentStatusCompleted,
+				Runs: []ExperimentRunOutput{
+					{ProblemID: 1, Verdict: "AC", Status: ExperimentRunStatusSuccess},
+					{ProblemID: 2, Verdict: "WA", Status: ExperimentRunStatusSuccess},
+				},
+			},
+			{
+				ID:                  11,
+				Name:                "round-2",
+				Model:               "mock-cpp17",
+				TotalCount:          2,
+				SuccessCount:        2,
+				ACCount:             2,
+				FailedCount:         0,
+				VerdictDistribution: VerdictDistribution{ACCount: 2},
+				Status:              ExperimentStatusCompleted,
+				Runs: []ExperimentRunOutput{
+					{ProblemID: 1, Verdict: "AC", Status: ExperimentRunStatusSuccess},
+					{ProblemID: 2, Verdict: "AC", Status: ExperimentRunStatusSuccess},
+				},
+			},
+			{
+				ID:                  12,
+				Name:                "round-3",
+				Model:               "mock-cpp17",
+				TotalCount:          2,
+				SuccessCount:        1,
+				ACCount:             0,
+				FailedCount:         1,
+				VerdictDistribution: VerdictDistribution{RECount: 1, UnknownCount: 1},
+				Status:              ExperimentStatusCompleted,
+				Runs: []ExperimentRunOutput{
+					{ProblemID: 1, Verdict: "RE", Status: ExperimentRunStatusSuccess},
+					{ProblemID: 2, Verdict: "", Status: ExperimentRunStatusFailed},
+				},
+			},
+		},
+	}
+	service := NewExperimentRepeatService(repo, runner, "mock-default")
+
+	output, err := service.Repeat(context.Background(), RepeatExperimentInput{
+		Name:        "repeat-1",
+		ProblemIDs:  []uint{1, 2},
+		Model:       "mock-cpp17",
+		RepeatCount: 3,
+	})
+	if err != nil {
+		t.Fatalf("repeat returned error: %v", err)
+	}
+
+	if len(runner.runInputs) != 3 {
+		t.Fatalf("expected 3 rounds, got %d", len(runner.runInputs))
+	}
+	if output.TotalProblemCount != 2 || output.TotalRunCount != 6 {
+		t.Fatalf("unexpected total counts: %+v", output)
+	}
+	if output.OverallACCount != 3 || output.OverallFailedCount != 2 {
+		t.Fatalf("unexpected overall counts: %+v", output)
+	}
+	if output.BestRoundACCount != 2 || output.WorstRoundACCount != 0 {
+		t.Fatalf("unexpected stability summary: %+v", output)
+	}
+	if len(output.RoundSummaries) != 3 || output.RoundSummaries[2].VerdictDistribution.RECount != 1 {
+		t.Fatalf("unexpected round summaries: %+v", output.RoundSummaries)
+	}
+	if len(output.ProblemSummaries) != 2 {
+		t.Fatalf("expected 2 problem summaries, got %+v", output.ProblemSummaries)
+	}
+	if output.ProblemSummaries[0].ProblemID != 1 || output.ProblemSummaries[0].ACCount != 2 || output.ProblemSummaries[0].FailedCount != 1 {
+		t.Fatalf("unexpected problem summary for problem 1: %+v", output.ProblemSummaries[0])
+	}
+	if output.ProblemSummaries[0].VerdictDistribution.ACCount != 2 || output.ProblemSummaries[0].VerdictDistribution.RECount != 1 {
+		t.Fatalf("unexpected verdict distribution for problem 1: %+v", output.ProblemSummaries[0].VerdictDistribution)
+	}
+	if output.ProblemSummaries[1].ProblemID != 2 || output.ProblemSummaries[1].ACCount != 1 || output.ProblemSummaries[1].FailedCount != 2 {
+		t.Fatalf("unexpected problem summary for problem 2: %+v", output.ProblemSummaries[1])
+	}
+	if output.ProblemSummaries[1].VerdictDistribution.WACount != 1 || output.ProblemSummaries[1].VerdictDistribution.ACCount != 1 || output.ProblemSummaries[1].VerdictDistribution.UnknownCount != 1 {
+		t.Fatalf("unexpected verdict distribution for problem 2: %+v", output.ProblemSummaries[1].VerdictDistribution)
+	}
+	if len(output.MostUnstableProblems) != 2 {
+		t.Fatalf("expected most unstable problems, got %+v", output.MostUnstableProblems)
+	}
+	if output.MostUnstableProblems[0].ProblemID != 2 || output.MostUnstableProblems[0].InstabilityScore != 1 {
+		t.Fatalf("unexpected first unstable problem: %+v", output.MostUnstableProblems[0])
+	}
+	if output.MostUnstableProblems[1].ProblemID != 1 || output.MostUnstableProblems[1].InstabilityScore != 1 {
+		t.Fatalf("unexpected second unstable problem: %+v", output.MostUnstableProblems[1])
+	}
+	if output.MostUnstableProblems[0].VerdictKindCount != 3 || output.MostUnstableProblems[1].VerdictKindCount != 2 {
+		t.Fatalf("unexpected unstable verdict kind counts: %+v", output.MostUnstableProblems)
+	}
+}
+
+func TestExperimentRepeatServiceRepeatMarksFailedOnRoundError(t *testing.T) {
+	repo := &fakeExperimentRepeatRepository{}
+	runner := &fakeExperimentRunner{
+		runOutputs: []*ExperimentOutput{
+			{ID: 10, Name: "round-1", Model: "mock-cpp17", TotalCount: 1, ACCount: 1, Status: ExperimentStatusCompleted},
+			nil,
+		},
+		runErrors: []error{
+			nil,
+			errors.New("round 2 failed"),
+		},
+	}
+	service := NewExperimentRepeatService(repo, runner, "mock-default")
+
+	_, err := service.Repeat(context.Background(), RepeatExperimentInput{
+		Name:        "repeat-2",
+		ProblemIDs:  []uint{1},
+		Model:       "mock-cpp17",
+		RepeatCount: 2,
+	})
+	if err == nil {
+		t.Fatal("expected repeat to fail on hard round error")
+	}
+	if repo.updated == nil || repo.updated.Status != model.ExperimentRepeatStatusFailed || repo.updated.ErrorMessage == "" {
+		t.Fatalf("expected failed repeat to be persisted, got %+v", repo.updated)
+	}
+}
+
+func TestExperimentRepeatServiceGet(t *testing.T) {
+	repo := &fakeExperimentRepeatRepository{
+		getByID: &model.ExperimentRepeat{
+			BaseModel:     model.BaseModel{ID: 7, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
+			Name:          "repeat-3",
+			ModelName:     "mock-cpp17",
+			ProblemIDs:    "[1,2]",
+			ExperimentIDs: "[10,11]",
+			RepeatCount:   2,
+			Status:        model.ExperimentRepeatStatusCompleted,
+		},
+	}
+	runner := &fakeExperimentRunner{
+		getMap: map[uint]*ExperimentOutput{
+			10: {
+				ID:                  10,
+				ACCount:             1,
+				FailedCount:         1,
+				VerdictDistribution: VerdictDistribution{ACCount: 1, WACount: 1},
+				Status:              ExperimentStatusCompleted,
+				Runs: []ExperimentRunOutput{
+					{ProblemID: 1, Verdict: "AC", Status: ExperimentRunStatusSuccess},
+					{ProblemID: 2, Verdict: "WA", Status: ExperimentRunStatusSuccess},
+				},
+			},
+			11: {
+				ID:                  11,
+				ACCount:             2,
+				FailedCount:         0,
+				VerdictDistribution: VerdictDistribution{ACCount: 2},
+				Status:              ExperimentStatusCompleted,
+				Runs: []ExperimentRunOutput{
+					{ProblemID: 1, Verdict: "AC", Status: ExperimentRunStatusSuccess},
+					{ProblemID: 2, Verdict: "AC", Status: ExperimentRunStatusSuccess},
+				},
+			},
+		},
+	}
+	service := NewExperimentRepeatService(repo, runner, "mock-default")
+
+	output, err := service.Get(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("get repeat returned error: %v", err)
+	}
+	if len(output.ExperimentIDs) != 2 || output.ExperimentIDs[0] != 10 {
+		t.Fatalf("unexpected experiment ids: %+v", output.ExperimentIDs)
+	}
+	if output.OverallACCount != 3 || output.OverallFailedCount != 1 {
+		t.Fatalf("unexpected aggregate output: %+v", output)
+	}
+	if len(output.ProblemSummaries) != 2 || output.ProblemSummaries[0].ProblemID != 1 || output.ProblemSummaries[1].ProblemID != 2 {
+		t.Fatalf("unexpected problem summaries: %+v", output.ProblemSummaries)
+	}
+	if output.ProblemSummaries[1].ACRate != 0.5 {
+		t.Fatalf("unexpected problem 2 ac rate: %+v", output.ProblemSummaries[1])
+	}
+	if len(output.MostUnstableProblems) != 2 || output.MostUnstableProblems[0].ProblemID != 2 {
+		t.Fatalf("unexpected most unstable problems: %+v", output.MostUnstableProblems)
+	}
+}

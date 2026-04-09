@@ -31,7 +31,7 @@ func TestHealthRoute(t *testing.T) {
 
 	healthService := service.NewHealthService("ai-for-oj", "test", fakeDB{})
 	healthHandler := handler.NewHealthHandler(healthService)
-	router := NewRouter(cfg, slog.Default(), healthHandler, nil, nil)
+	router := NewRouter(cfg, slog.Default(), healthHandler, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	resp := httptest.NewRecorder()
@@ -53,7 +53,7 @@ func TestHealthRouteReturns503WhenDatabaseIsDown(t *testing.T) {
 
 	healthService := service.NewHealthService("ai-for-oj", "test", fakeDB{err: errors.New("db down")})
 	healthHandler := handler.NewHealthHandler(healthService)
-	router := NewRouter(cfg, slog.Default(), healthHandler, nil, nil)
+	router := NewRouter(cfg, slog.Default(), healthHandler, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	resp := httptest.NewRecorder()

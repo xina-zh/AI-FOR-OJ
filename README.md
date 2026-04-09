@@ -1,58 +1,177 @@
-# AI For OJ
+# AI-For-Oj
 
-AI 算法题实验平台的 Go 项目骨架。当前阶段重点是先保证 OJ 基础设施、AI 实验能力和可观测能力可以在同一工程里平稳演进。
+`AI-For-Oj` 当前定位不是普通外部 OJ，而是一个面向后续变量控制与结果分析的 **AI 算法题实验平台后端**。
 
-## 当前阶段总结
+当前阶段的重点已经不是“只有工程骨架”，而是先把一套可信、可回看、可继续扩展的最小实验闭环搭起来：
 
-当前阶段的工程总结、已验证能力、系统语义、已知限制和下一步候选方向，统一整理在：
+- OJ 基础评测链路可真实运行
+- AI solve 已能走通单次解题闭环
+- experiment / compare / repeat 已具备最小实验运行能力
+- 当前已经有一层可用的最小分析视图，便于观察 AC、失败、稳定性和差异
+
+## 当前阶段里程碑
+
+当前这一版可以概括为：
+
+**最小实验闭环与基础分析能力已形成。**
+
+也就是说，项目已经具备：
+
+- 题目与测试点录入
+- 真实 `cpp17` 判题
+- submission 可回看
+- AI solve 可落库回放
+- 批量实验 / 对比实验 / 重复实验
+- 最小 verdict 分布、按题稳定性、按题差异分析
+
+对应的阶段总结文档见：
 
 - [docs/dev_progress.md](/home/xina/projects/AI-For-Oj/docs/dev_progress.md)
 
-这份文档用于后续开发直接接续当前真实进度，不是产品宣传材料。
+## 已完成能力
+
+### OJ 基础评测层
+
+- 题目管理
+  - `POST /api/v1/problems`
+  - `GET /api/v1/problems`
+  - `GET /api/v1/problems/:id`
+- 测试点管理
+  - `POST /api/v1/problems/:id/testcases`
+  - `GET /api/v1/problems/:id/testcases`
+- 提交评测
+  - `POST /api/v1/submissions/judge`
+- 真实沙箱执行
+  - 第一版 `DockerSandbox`
+  - 当前只支持 `cpp17`
+  - 普通标准输入输出题
+- 当前支持的 verdict
+  - `AC`
+  - `WA`
+  - `CE`
+  - `RE`
+  - `TLE`
+  - `UNJUDGEABLE`
+
+### Submission 与判题可观测层
+
+- 提交列表与详情
+  - `GET /api/v1/submissions`
+  - `GET /api/v1/submissions/:id`
+- 提交列表支持
+  - `page`
+  - `page_size`
+  - `problem_id`
+- submission detail 当前可回看
+  - `verdict`
+  - `runtime_ms`
+  - `memory_kb`
+  - `passed_count`
+  - `total_count`
+  - `compile_stderr`
+  - `run_stdout`
+  - `run_stderr`
+  - `exit_code`
+  - `timed_out`
+  - `exec_stage`
+  - `error_message`
+  - `testcase_results`
+- 按题聚合 submission 统计
+  - `GET /api/v1/submissions/stats/problems`
+
+### AI Solve 层
+
+- 最小 AI solve 闭环
+  - `POST /api/v1/ai/solve`
+  - `problem -> prompt -> llm -> 提取 cpp17 代码 -> judge`
+- 单次 AI solve 记录
+  - `GET /api/v1/ai/solve-runs/:id`
+- 当前默认支持本地闭环
+  - `mock` LLM provider
+- AI 提交已标记
+  - `source_type = ai`
+
+### 实验运行层
+
+- 最小批量实验
+  - `POST /api/v1/experiments/run`
+  - `GET /api/v1/experiments/:id`
+- 最小单变量 compare
+  - `POST /api/v1/experiments/compare`
+  - `GET /api/v1/experiments/compare/:id`
+  - 当前只支持单变量 `model` 对比
+- 最小 repeat 实验
+  - `POST /api/v1/experiments/repeat`
+  - `GET /api/v1/experiments/repeat/:id`
+
+### 最小分析层
+
+- experiment verdict 分布
+- compare baseline / candidate verdict 分布
+- repeat 按题稳定性统计
+- repeat 最不稳定题列表
+- compare 按题差异统计
+- compare highlighted problems
+
+## 当前阶段已验证内容
+
+当前已经完成真实验证的内容包括：
+
+- `DockerSandbox` 能真实编译并运行 `cpp17`
+- `AC / WA / CE / RE / TLE` 已经过真实链路验证
+- `UNJUDGEABLE` 语义已接入并用于“无 testcase 不可评测”
+- submission / judge result / testcase result 能正确落库与查询
+- 最小 AI solve 闭环已验收通过
+- experiment / compare / repeat 的最小 service 链路已通过测试与构建验证
+
+## 当前阶段系统语义
+
+- Judge 采用“首个失败 testcase 即停止”
+- `CE` 不生成 `testcase_results`
+- 无 testcase 不再误判为 `AC`，而是返回 `UNJUDGEABLE`
+- compare 中按题变化当前采用最小规则
+  - `regressed`
+  - `improved`
+  - `changed_non_ac`
+  - `same`
+- repeat 中“最不稳定题”当前采用最小规则
+  - `instability_score = min(ac_count, failed_count)`
+
+## 当前未做内容
+
+当前阶段明确还没有展开的内容包括：
+
+- 异步执行 / 后台任务 / 队列系统
+- token / latency 统计
+- prompt / tooling / agent 变量矩阵
+- 多语言支持
+- stronger sandbox / 更严格隔离
+- special judge
+- 通用 benchmark 分析平台
+- 前端页面与可视化展示
 
 ## 当前数据库迁移策略
 
-当前阶段使用 GORM `AutoMigrate`，原因是项目仍在快速迭代，核心表结构大概率还会继续调整。这样可以优先推进 OJ、Judge、LLM、Experiment 主流程，减少早期 migration 维护成本。
+当前阶段仍使用 GORM `AutoMigrate`。
 
-后续当表结构趋于稳定、开始积累真实数据、或者进入多人协作频繁改表阶段时，可以平滑升级为“版本化 migration”方案。
+原因：
 
-## AutoMigrate 触发位置
+- 项目仍处于快速迭代期
+- experiment 相关模型还在持续收敛
+- 当前更优先保证闭环与演进速度
 
-启动链路：
+后续当表结构稳定、真实数据开始积累、或多人协作改表变频繁时，再平滑升级到版本化 migration。
 
-1. `cmd/server/main.go`
-2. `internal/bootstrap.Build(...)`
-3. 数据库初始化 `internal/bootstrap.NewDatabase(...)`
-4. 自动迁移 `internal/bootstrap.RunMigrations(...)`
+关键位置：
 
-也就是说，服务启动时连接数据库成功后，会根据配置决定是否执行 `AutoMigrate`。
-
-关键代码位置：
-
-- 启动时触发迁移：[internal/bootstrap/app.go](/home/xina/projects/AI-For-Oj/internal/bootstrap/app.go)
-- 自动迁移逻辑：[internal/bootstrap/migrate.go](/home/xina/projects/AI-For-Oj/internal/bootstrap/migrate.go)
-- 模型注册入口：[internal/model/schema.go](/home/xina/projects/AI-For-Oj/internal/model/schema.go)
-
-## AutoMigrate 配置开关
-
-配置文件：
-
-```yaml
-database:
-  auto_migrate: true
-```
-
-环境变量：
-
-```bash
-DB_AUTO_MIGRATE=true
-```
-
-当该开关为 `true` 时，应用启动后会自动执行建表/补字段等 GORM 自动迁移行为；为 `false` 时则跳过迁移。
+- 启动入口：[cmd/server/main.go](/home/xina/projects/AI-For-Oj/cmd/server/main.go)
+- 启动装配：[internal/bootstrap/app.go](/home/xina/projects/AI-For-Oj/internal/bootstrap/app.go)
+- 自动迁移：[internal/bootstrap/migrate.go](/home/xina/projects/AI-For-Oj/internal/bootstrap/migrate.go)
+- 模型注册：[internal/model/schema.go](/home/xina/projects/AI-For-Oj/internal/model/schema.go)
 
 ## 本地启动
 
-1. 启动 MySQL：
+1. 启动依赖：
 
 ```bash
 docker compose up -d mysql
@@ -64,148 +183,28 @@ docker compose up -d mysql
 go run ./cmd/server
 ```
 
-3. 检查健康状态：
+3. 健康检查：
 
 ```bash
-curl http://127.0.0.1:8080/health
+curl --noproxy '*' -sS http://127.0.0.1:8080/health
 ```
 
-## 当前真实判题沙箱
-
-当前 Judge 默认使用第一版 `DockerSandbox`，不再默认走 `MockSandbox`。
-
-设计边界：
-
-- `judge` 仍然只依赖 `sandbox` 接口，不感知 Docker 细节
-- 默认目标镜像是 `gcc:13`
-- 当前仅支持 `cpp17`
-- 当前仅支持单文件源码、标准输入输出题
-
-当前版本的安全边界：
-
-- 使用短生命周期容器，执行完成后自动清理
-- 使用隔离工作目录保存源码和编译产物
-- 运行时使用超时控制、基础 CPU / memory / pids limit、`--network none`
-- 还没有做到更严格的 syscall / namespace / seccomp 级别加固
-
-后续可以平滑升级到更严格的 `NsJailSandbox` 或更强隔离方案，而不需要推翻 `judge/service/handler` 主链。
-
-## DockerSandbox 运行前提
-
-需要满足：
-
-1. 本机 Docker daemon 可用
-2. 已拉取 `gcc:13`
-3. 如果通过 `docker compose` 启动应用，`app` 容器需要能访问 `/var/run/docker.sock`
-
-如果 `gcc:13` 尚未拉取成功，Judge 会返回清晰错误，说明这是运行环境问题，而不是判题逻辑问题。
-
-## 真实判题手动验证步骤
-
-1. 拉取编译镜像：
+如果要走真实判题链路，需要提前准备：
 
 ```bash
 docker pull gcc:13
 ```
 
-2. 启动依赖：
+## 当前路线说明
 
-```bash
-docker compose up -d mysql
-```
+当前阶段：
 
-3. 启动服务：
+- 最小实验闭环与基础分析能力
 
-```bash
-go run ./cmd/server
-```
+下一阶段建议方向：
 
-4. 创建题目：
+- 更强实验指标
+- 更明确的变量控制
+- 更稳定的实验可复现能力
 
-```bash
-curl -X POST http://127.0.0.1:8080/api/v1/problems \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "title":"Echo",
-    "description":"读取一行并原样输出",
-    "input_spec":"输入一行字符串",
-    "output_spec":"输出同样的字符串",
-    "samples":"[{\"input\":\"hello\",\"output\":\"hello\"}]",
-    "time_limit_ms":1000,
-    "memory_limit_mb":256,
-    "difficulty":"easy",
-    "tags":"implementation"
-  }'
-```
-
-5. 添加测试点：
-
-```bash
-curl -X POST http://127.0.0.1:8080/api/v1/problems/1/testcases \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "input":"hello\n",
-    "expected_output":"hello\n",
-    "is_sample":true
-  }'
-```
-
-6. 提交正确代码，验证 `AC`：
-
-```bash
-curl -X POST http://127.0.0.1:8080/api/v1/submissions/judge \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "problem_id":1,
-    "language":"cpp17",
-    "source_code":"#include <bits/stdc++.h>\nusing namespace std;\nint main(){ios::sync_with_stdio(false);cin.tie(nullptr);string s;getline(cin,s);cout<<s<<\"\\n\";return 0;}"
-  }'
-```
-
-7. 提交错误代码，验证 `WA`：
-
-```bash
-curl -X POST http://127.0.0.1:8080/api/v1/submissions/judge \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "problem_id":1,
-    "language":"cpp17",
-    "source_code":"#include <bits/stdc++.h>\nusing namespace std;\nint main(){cout<<\"wrong\\n\";return 0;}"
-  }'
-```
-
-8. 提交编译失败代码，验证 `CE`：
-
-```bash
-curl -X POST http://127.0.0.1:8080/api/v1/submissions/judge \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "problem_id":1,
-    "language":"cpp17",
-    "source_code":"#include <bits/stdc++.h>\nint main( { return 0; }"
-  }'
-```
-
-9. 提交运行时错误代码，验证 `RE`：
-
-```bash
-curl -X POST http://127.0.0.1:8080/api/v1/submissions/judge \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "problem_id":1,
-    "language":"cpp17",
-    "source_code":"#include <bits/stdc++.h>\nusing namespace std;\nint main(){int x=0;cout<<(1/x)<<\"\\n\";return 0;}"
-  }'
-```
-
-10. 提交死循环代码，验证 `TLE`：
-
-```bash
-curl -X POST http://127.0.0.1:8080/api/v1/submissions/judge \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "problem_id":1,
-    "language":"cpp17",
-    "source_code":"#include <bits/stdc++.h>\nusing namespace std;\nint main(){while(true){} return 0;}"
-  }'
-```
+但在进入下一阶段之前，当前这一版已经适合作为一个清晰的阶段性里程碑提交到 GitHub。

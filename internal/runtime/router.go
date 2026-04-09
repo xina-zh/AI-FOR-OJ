@@ -15,6 +15,8 @@ func NewRouter(
 	healthHandler *handler.HealthHandler,
 	problemHandler *handler.ProblemHandler,
 	submissionHandler *handler.SubmissionHandler,
+	aiHandler *handler.AIHandler,
+	experimentHandler *handler.ExperimentHandler,
 ) *gin.Engine {
 	if cfg.App.Env != "local" {
 		gin.SetMode(gin.ReleaseMode)
@@ -37,6 +39,18 @@ func NewRouter(
 		router.GET("/api/v1/submissions/stats/problems", submissionHandler.AggregateByProblem)
 		router.GET("/api/v1/submissions/:id", submissionHandler.Get)
 		router.POST("/api/v1/submissions/judge", submissionHandler.Judge)
+	}
+	if aiHandler != nil {
+		router.POST("/api/v1/ai/solve", aiHandler.Solve)
+		router.GET("/api/v1/ai/solve-runs/:id", aiHandler.GetRun)
+	}
+	if experimentHandler != nil {
+		router.POST("/api/v1/experiments/compare", experimentHandler.Compare)
+		router.GET("/api/v1/experiments/compare/:id", experimentHandler.GetCompare)
+		router.POST("/api/v1/experiments/repeat", experimentHandler.Repeat)
+		router.GET("/api/v1/experiments/repeat/:id", experimentHandler.GetRepeat)
+		router.POST("/api/v1/experiments/run", experimentHandler.Run)
+		router.GET("/api/v1/experiments/:id", experimentHandler.Get)
 	}
 
 	return router

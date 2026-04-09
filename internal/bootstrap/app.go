@@ -11,6 +11,7 @@ import (
 	"ai-for-oj/internal/config"
 	"ai-for-oj/internal/handler"
 	"ai-for-oj/internal/judge"
+	"ai-for-oj/internal/llm"
 	"ai-for-oj/internal/repository"
 	"ai-for-oj/internal/runtime"
 	"ai-for-oj/internal/sandbox"
@@ -47,6 +48,10 @@ func Build(configPath string) (*Container, error) {
 	problemRepository := repository.NewProblemRepository(db)
 	testCaseRepository := repository.NewTestCaseRepository(db)
 	submissionRepository := repository.NewSubmissionRepository(db)
+	aiSolveRunRepository := repository.NewAISolveRunRepository(db)
+	experimentRepository := repository.NewExperimentRepository(db)
+	experimentRepeatRepository := repository.NewExperimentRepeatRepository(db)
+	experimentCompareRepository := repository.NewExperimentCompareRepository(db)
 	problemService := service.NewProblemService(problemRepository, testCaseRepository)
 	problemHandler := handler.NewProblemHandler(problemService)
 	sandboxExecutor, err := sandbox.NewDockerSandbox(cfg.Sandbox, logger)
@@ -57,8 +62,18 @@ func Build(configPath string) (*Container, error) {
 	judgeSubmissionService := service.NewJudgeSubmissionService(problemRepository, submissionRepository, judgeEngine)
 	submissionQueryService := service.NewSubmissionQueryService(submissionRepository)
 	submissionHandler := handler.NewSubmissionHandler(judgeSubmissionService, submissionQueryService)
+	llmClient, err := llm.NewClient(cfg.LLM, logger)
+	if err != nil {
+		return nil, fmt.Errorf("init llm client: %w", err)
+	}
+	aiSolveService := service.NewAISolveService(problemRepository, aiSolveRunRepository, llmClient, judgeSubmissionService, cfg.LLM.Model)
+	aiHandler := handler.NewAIHandler(aiSolveService)
+	experimentService := service.NewExperimentService(experimentRepository, aiSolveService, cfg.LLM.Model)
+	experimentRepeatService := service.NewExperimentRepeatService(experimentRepeatRepository, experimentService, cfg.LLM.Model)
+	experimentCompareService := service.NewExperimentCompareService(experimentCompareRepository, experimentService, cfg.LLM.Model)
+	experimentHandler := handler.NewExperimentHandler(experimentService, experimentCompareService, experimentRepeatService)
 
-	router := runtime.NewRouter(cfg, logger, healthHandler, problemHandler, submissionHandler)
+	router := runtime.NewRouter(cfg, logger, healthHandler, problemHandler, submissionHandler, aiHandler, experimentHandler)
 	server := runtime.NewApp(cfg, logger, router, func(context.Context) error {
 		return sqlDB.Close()
 	})

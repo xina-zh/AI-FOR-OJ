@@ -35,3 +35,8 @@ sandbox:
   compile_timeout: 10s
   run_timeout_buffer: 500ms
   compile_memory_mb: 512
+
+llm:
+  provider: mock
+  model: mock-cpp17
+  timeout: 30s

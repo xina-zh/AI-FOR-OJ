@@ -16,6 +16,7 @@ type JudgeSubmissionInput struct {
 	ProblemID  uint
 	SourceCode string
 	Language   string
+	SourceType string
 }
 
 type JudgeSubmissionOutput struct {
@@ -63,7 +64,7 @@ func (s *JudgeSubmissionService) Submit(ctx context.Context, input JudgeSubmissi
 		ProblemID:  input.ProblemID,
 		SourceCode: input.SourceCode,
 		Language:   input.Language,
-		SourceType: model.SourceTypeHuman,
+		SourceType: defaultSourceType(input.SourceType),
 	}
 	if err := s.submissions.Create(ctx, submission); err != nil {
 		return nil, fmt.Errorf("create submission: %w", err)
@@ -128,4 +129,11 @@ func (s *JudgeSubmissionService) Submit(ctx context.Context, input JudgeSubmissi
 		TotalCount:   judgeResult.TotalCount,
 		ErrorMessage: judgeResult.ErrorMessage,
 	}, nil
+}
+
+func defaultSourceType(sourceType string) string {
+	if sourceType == "" {
+		return model.SourceTypeHuman
+	}
+	return sourceType
 }

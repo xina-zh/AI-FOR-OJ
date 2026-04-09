@@ -6,4 +6,5 @@ const (
 	VerdictTimeLimitExceeded = "TLE"
 	VerdictRuntimeError      = "RE"
 	VerdictCompileError      = "CE"
+	VerdictUnjudgeable       = "UNJUDGEABLE"
 )

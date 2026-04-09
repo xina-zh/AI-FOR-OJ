@@ -1,0 +1,155 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"ai-for-oj/internal/model"
+	"ai-for-oj/internal/repository"
+)
+
+type fakeExperimentRepository struct {
+	experiment *model.Experiment
+	runs       []*model.ExperimentRun
+	nextID     uint
+	getByID    *model.Experiment
+	err        error
+}
+
+func (r *fakeExperimentRepository) Create(_ context.Context, experiment *model.Experiment) error {
+	if r.err != nil {
+		return r.err
+	}
+	if r.nextID == 0 {
+		r.nextID = 1
+	}
+	experiment.ID = r.nextID
+	copied := *experiment
+	r.experiment = &copied
+	return nil
+}
+
+func (r *fakeExperimentRepository) Update(_ context.Context, experiment *model.Experiment) error {
+	if r.err != nil {
+		return r.err
+	}
+	copied := *experiment
+	r.experiment = &copied
+	if r.getByID == nil || r.getByID.ID == experiment.ID {
+		r.getByID = &copied
+		r.getByID.Runs = make([]model.ExperimentRun, 0, len(r.runs))
+		for _, run := range r.runs {
+			r.getByID.Runs = append(r.getByID.Runs, *run)
+		}
+	}
+	return nil
+}
+
+func (r *fakeExperimentRepository) CreateRun(_ context.Context, run *model.ExperimentRun) error {
+	if r.err != nil {
+		return r.err
+	}
+	run.ID = uint(len(r.runs) + 1)
+	run.CreatedAt = time.Now().UTC()
+	copied := *run
+	r.runs = append(r.runs, &copied)
+	return nil
+}
+
+func (r *fakeExperimentRepository) GetByIDWithRuns(_ context.Context, experimentID uint) (*model.Experiment, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.getByID == nil || r.getByID.ID != experimentID {
+		return nil, repository.ErrExperimentNotFound
+	}
+	return r.getByID, nil
+}
+
+type fakeBatchAISolver struct {
+	outputs map[uint]*AISolveOutput
+	errors  map[uint]error
+	inputs  []AISolveInput
+}
+
+func (s *fakeBatchAISolver) Solve(_ context.Context, input AISolveInput) (*AISolveOutput, error) {
+	s.inputs = append(s.inputs, input)
+	return s.outputs[input.ProblemID], s.errors[input.ProblemID]
+}
+
+func TestExperimentServiceRun(t *testing.T) {
+	repo := &fakeExperimentRepository{}
+	aiSolver := &fakeBatchAISolver{
+		outputs: map[uint]*AISolveOutput{
+			1: {AISolveRunID: 11, ProblemID: 1, SubmissionID: 101, Verdict: "AC"},
+			2: {AISolveRunID: 12, ProblemID: 2, SubmissionID: 102, Verdict: "WA", ErrorMessage: "wrong answer"},
+		},
+		errors: map[uint]error{},
+	}
+	service := NewExperimentService(repo, aiSolver, "mock-cpp17")
+
+	output, err := service.Run(context.Background(), RunExperimentInput{
+		Name:       "batch-1",
+		ProblemIDs: []uint{1, 2},
+		Model:      "mock-cpp17",
+	})
+	if err != nil {
+		t.Fatalf("run experiment returned error: %v", err)
+	}
+
+	if output.TotalCount != 2 || output.SuccessCount != 2 || output.ACCount != 1 || output.FailedCount != 0 {
+		t.Fatalf("unexpected summary: %+v", output)
+	}
+	if output.VerdictDistribution.ACCount != 1 || output.VerdictDistribution.WACount != 1 {
+		t.Fatalf("unexpected verdict distribution: %+v", output.VerdictDistribution)
+	}
+
+	if len(output.Runs) != 2 {
+		t.Fatalf("expected 2 runs, got %d", len(output.Runs))
+	}
+
+	if output.Runs[0].AttemptNo != 1 || output.Runs[1].AttemptNo != 2 {
+		t.Fatalf("expected sequential attempt numbers, got %+v", output.Runs)
+	}
+}
+
+func TestExperimentServiceRunContinuesAfterFailure(t *testing.T) {
+	repo := &fakeExperimentRepository{}
+	aiSolver := &fakeBatchAISolver{
+		outputs: map[uint]*AISolveOutput{
+			1: {AISolveRunID: 21, ProblemID: 1, SubmissionID: 201, Verdict: "AC"},
+			2: {AISolveRunID: 22, ProblemID: 2},
+			3: {AISolveRunID: 23, ProblemID: 3, SubmissionID: 203, Verdict: "UNJUDGEABLE"},
+		},
+		errors: map[uint]error{
+			2: errors.New("llm solve failed: upstream timeout"),
+		},
+	}
+	service := NewExperimentService(repo, aiSolver, "mock-cpp17")
+
+	output, err := service.Run(context.Background(), RunExperimentInput{
+		Name:       "batch-2",
+		ProblemIDs: []uint{1, 2, 3},
+		Model:      "mock-cpp17",
+	})
+	if err != nil {
+		t.Fatalf("run experiment returned error: %v", err)
+	}
+
+	if len(aiSolver.inputs) != 3 {
+		t.Fatalf("expected all problems to be processed, got %d", len(aiSolver.inputs))
+	}
+
+	if output.TotalCount != 3 || output.SuccessCount != 2 || output.FailedCount != 1 || output.ACCount != 1 {
+		t.Fatalf("unexpected summary after partial failure: %+v", output)
+	}
+	if output.VerdictDistribution.ACCount != 1 || output.VerdictDistribution.UnjudgeableCount != 1 || output.VerdictDistribution.UnknownCount != 1 {
+		t.Fatalf("unexpected verdict distribution after partial failure: %+v", output.VerdictDistribution)
+	}
+
+	if output.Runs[1].Status != ExperimentRunStatusFailed || output.Runs[1].ErrorMessage == "" {
+		t.Fatalf("expected failed run to be recorded, got %+v", output.Runs[1])
+	}
+}

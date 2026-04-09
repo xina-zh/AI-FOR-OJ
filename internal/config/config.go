@@ -18,6 +18,7 @@ type Config struct {
 	Log      LogConfig      `yaml:"log"`
 	Database DatabaseConfig `yaml:"database"`
 	Sandbox  SandboxConfig  `yaml:"sandbox"`
+	LLM      LLMConfig      `yaml:"llm"`
 }
 
 type AppConfig struct {
@@ -60,6 +61,15 @@ type SandboxConfig struct {
 	CompileTimeout   time.Duration `yaml:"compile_timeout"`
 	RunTimeoutBuffer time.Duration `yaml:"run_timeout_buffer"`
 	CompileMemoryMB  int           `yaml:"compile_memory_mb"`
+}
+
+type LLMConfig struct {
+	Provider     string        `yaml:"provider"`
+	BaseURL      string        `yaml:"base_url"`
+	APIKey       string        `yaml:"api_key"`
+	Model        string        `yaml:"model"`
+	Timeout      time.Duration `yaml:"timeout"`
+	MockResponse string        `yaml:"mock_response"`
 }
 
 func Load(path string) (Config, error) {
@@ -126,6 +136,11 @@ func defaultConfig() Config {
 			RunTimeoutBuffer: 500 * time.Millisecond,
 			CompileMemoryMB:  512,
 		},
+		LLM: LLMConfig{
+			Provider: "mock",
+			Model:    "mock-cpp17",
+			Timeout:  30 * time.Second,
+		},
 	}
 }
 
@@ -171,6 +186,13 @@ func applyEnvOverrides(cfg *Config) {
 	cfg.Sandbox.CompileTimeout = getEnvDuration("SANDBOX_COMPILE_TIMEOUT", cfg.Sandbox.CompileTimeout)
 	cfg.Sandbox.RunTimeoutBuffer = getEnvDuration("SANDBOX_RUN_TIMEOUT_BUFFER", cfg.Sandbox.RunTimeoutBuffer)
 	cfg.Sandbox.CompileMemoryMB = getEnvInt("SANDBOX_COMPILE_MEMORY_MB", cfg.Sandbox.CompileMemoryMB)
+
+	cfg.LLM.Provider = getEnvString("LLM_PROVIDER", cfg.LLM.Provider)
+	cfg.LLM.BaseURL = getEnvString("LLM_BASE_URL", cfg.LLM.BaseURL)
+	cfg.LLM.APIKey = getEnvString("LLM_API_KEY", cfg.LLM.APIKey)
+	cfg.LLM.Model = getEnvString("LLM_MODEL", cfg.LLM.Model)
+	cfg.LLM.Timeout = getEnvDuration("LLM_TIMEOUT", cfg.LLM.Timeout)
+	cfg.LLM.MockResponse = getEnvString("LLM_MOCK_RESPONSE", cfg.LLM.MockResponse)
 }
 
 func getEnvString(key, fallback string) string {

@@ -25,6 +25,12 @@ func (e *JudgeEngine) Judge(ctx context.Context, req Request) (Result, error) {
 		Verdict:    VerdictAccepted,
 		TotalCount: len(req.TestCases),
 	}
+	if len(req.TestCases) == 0 {
+		result.Verdict = VerdictUnjudgeable
+		result.ExecStage = "validate"
+		result.ErrorMessage = "problem has no test cases; submission is not judgeable"
+		return result, nil
+	}
 
 	compileResult, err := e.sandbox.Compile(ctx, sandbox.CompileRequest{
 		Language:   req.Language,

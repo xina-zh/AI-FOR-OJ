@@ -40,6 +40,43 @@ func TestJudgeAccepted(t *testing.T) {
 	}
 }
 
+func TestJudgeReturnsUnjudgeableWhenProblemHasNoTestCases(t *testing.T) {
+	engine := NewEngine(sandbox.NewMockSandbox())
+
+	result, err := engine.Judge(context.Background(), Request{
+		Problem: &model.Problem{
+			TimeLimitMS:   1000,
+			MemoryLimitMB: 256,
+		},
+		TestCases:  nil,
+		Language:   model.LanguageCPP17,
+		SourceCode: "int main() { return 0; }",
+	})
+	if err != nil {
+		t.Fatalf("judge returned error: %v", err)
+	}
+
+	if result.Verdict != VerdictUnjudgeable {
+		t.Fatalf("expected verdict %s, got %s", VerdictUnjudgeable, result.Verdict)
+	}
+
+	if result.ExecStage != "validate" {
+		t.Fatalf("expected exec stage validate, got %s", result.ExecStage)
+	}
+
+	if result.ErrorMessage == "" {
+		t.Fatal("expected clear error message for unjudgeable submission")
+	}
+
+	if result.PassedCount != 0 || result.TotalCount != 0 {
+		t.Fatalf("expected passed/total 0/0, got %d/%d", result.PassedCount, result.TotalCount)
+	}
+
+	if len(result.TestCaseResults) != 0 {
+		t.Fatalf("expected no testcase results, got %+v", result.TestCaseResults)
+	}
+}
+
 func TestJudgeCompileError(t *testing.T) {
 	engine := NewEngine(sandbox.NewMockSandbox())
 

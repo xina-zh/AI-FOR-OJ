@@ -8,6 +8,7 @@ import (
 	"ai-for-oj/internal/judge"
 	"ai-for-oj/internal/model"
 	"ai-for-oj/internal/repository"
+	"ai-for-oj/internal/sandbox"
 )
 
 type fakeProblemRepository struct {
@@ -196,6 +197,54 @@ func TestJudgeSubmissionServiceSubmitReturnsProblemNotFound(t *testing.T) {
 	})
 	if err != repository.ErrProblemNotFound {
 		t.Fatalf("expected err %v, got %v", repository.ErrProblemNotFound, err)
+	}
+}
+
+func TestJudgeSubmissionServiceSubmitReturnsUnjudgeableWhenProblemHasNoTestCases(t *testing.T) {
+	problemRepo := fakeProblemRepository{
+		problem: &model.Problem{
+			BaseModel: model.BaseModel{ID: 7},
+			TestCases: nil,
+		},
+	}
+	submissionRepo := &fakeSubmissionRepository{}
+	service := NewJudgeSubmissionService(
+		problemRepo,
+		submissionRepo,
+		judge.NewEngine(sandbox.NewMockSandbox()),
+	)
+
+	output, err := service.Submit(context.Background(), JudgeSubmissionInput{
+		ProblemID:  7,
+		SourceCode: "int main() { return 0; }",
+		Language:   model.LanguageCPP17,
+	})
+	if err != nil {
+		t.Fatalf("submit returned error: %v", err)
+	}
+
+	if output.Verdict != judge.VerdictUnjudgeable {
+		t.Fatalf("expected verdict %s, got %s", judge.VerdictUnjudgeable, output.Verdict)
+	}
+
+	if output.ErrorMessage == "" {
+		t.Fatal("expected clear error message for unjudgeable submission")
+	}
+
+	if submissionRepo.judgeResult == nil {
+		t.Fatal("expected judge result to be persisted")
+	}
+
+	if submissionRepo.judgeResult.Verdict != judge.VerdictUnjudgeable {
+		t.Fatalf("expected persisted verdict %s, got %s", judge.VerdictUnjudgeable, submissionRepo.judgeResult.Verdict)
+	}
+
+	if submissionRepo.judgeResult.ExecStage != "validate" {
+		t.Fatalf("expected exec stage validate, got %s", submissionRepo.judgeResult.ExecStage)
+	}
+
+	if len(submissionRepo.testCaseResults) != 0 {
+		t.Fatalf("expected no testcase results to be persisted, got %+v", submissionRepo.testCaseResults)
 	}
 }
 
