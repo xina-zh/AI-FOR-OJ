@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"ai-for-oj/internal/llm"
 	"ai-for-oj/internal/model"
@@ -55,10 +56,14 @@ type fakeLLMClient struct {
 	response llm.GenerateResponse
 	err      error
 	request  llm.GenerateRequest
+	delay    time.Duration
 }
 
 func (c *fakeLLMClient) Generate(_ context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
 	c.request = req
+	if c.delay > 0 {
+		time.Sleep(c.delay)
+	}
 	return c.response, c.err
 }
 
@@ -76,9 +81,12 @@ func (s *fakeJudgeSubmitter) Submit(_ context.Context, input JudgeSubmissionInpu
 func TestAISolveServiceSolve(t *testing.T) {
 	llmClient := &fakeLLMClient{
 		response: llm.GenerateResponse{
-			Model:   "mock-cpp17",
-			Content: "```cpp\n#include <bits/stdc++.h>\nusing namespace std;\nint main(){cout<<1;return 0;}\n```",
+			Model:        "mock-cpp17",
+			Content:      "```cpp\n#include <bits/stdc++.h>\nusing namespace std;\nint main(){cout<<1;return 0;}\n```",
+			InputTokens:  123,
+			OutputTokens: 45,
 		},
+		delay: 2 * time.Millisecond,
 	}
 	judgeSubmitter := &fakeJudgeSubmitter{
 		output: &JudgeSubmissionOutput{
@@ -132,6 +140,12 @@ func TestAISolveServiceSolve(t *testing.T) {
 	if output.SubmissionID != 10 || output.Verdict != "AC" {
 		t.Fatalf("expected submission result in output, got %+v", output)
 	}
+	if output.TokenInput != 123 || output.TokenOutput != 45 {
+		t.Fatalf("expected token usage in output, got %+v", output)
+	}
+	if output.LLMLatencyMS < 0 || output.TotalLatencyMS < output.LLMLatencyMS {
+		t.Fatalf("expected latency fields in output, got %+v", output)
+	}
 
 	if output.AISolveRunID == 0 {
 		t.Fatal("expected ai solve run id to be returned")
@@ -139,6 +153,12 @@ func TestAISolveServiceSolve(t *testing.T) {
 
 	if len(runRepo.updated) != 1 || runRepo.updated[0].Status != model.AISolveRunStatusSuccess {
 		t.Fatalf("expected successful run to be persisted, got %+v", runRepo.updated)
+	}
+	if runRepo.updated[0].TokenInput != 123 || runRepo.updated[0].TokenOutput != 45 {
+		t.Fatalf("expected token usage persisted, got %+v", runRepo.updated[0])
+	}
+	if runRepo.updated[0].TotalLatencyMS < runRepo.updated[0].LLMLatencyMS {
+		t.Fatalf("expected latency persisted, got %+v", runRepo.updated[0])
 	}
 }
 
@@ -193,6 +213,9 @@ func TestAISolveServiceSolveReturnsLLMFailure(t *testing.T) {
 	if len(runRepo.updated) != 1 || runRepo.updated[0].ErrorMessage == "" {
 		t.Fatalf("expected llm failure to be persisted, got %+v", runRepo.updated)
 	}
+	if runRepo.updated[0].TotalLatencyMS < 0 {
+		t.Fatalf("expected total latency on failure, got %+v", runRepo.updated[0])
+	}
 }
 
 func TestAISolveServiceSolveReturnsCodeExtractionFailure(t *testing.T) {
@@ -229,11 +252,15 @@ func TestAISolveServiceSolveReturnsCodeExtractionFailure(t *testing.T) {
 func TestAISolveServiceGetRun(t *testing.T) {
 	runRepo := &fakeAISolveRunRepository{
 		getRun: &model.AISolveRun{
-			BaseModel:    model.BaseModel{ID: 5},
-			ProblemID:    1,
-			Model:        "mock-cpp17",
-			Status:       model.AISolveRunStatusSuccess,
-			ErrorMessage: "",
+			BaseModel:      model.BaseModel{ID: 5},
+			ProblemID:      1,
+			Model:          "mock-cpp17",
+			Status:         model.AISolveRunStatusSuccess,
+			ErrorMessage:   "",
+			TokenInput:     12,
+			TokenOutput:    34,
+			LLMLatencyMS:   5,
+			TotalLatencyMS: 9,
 		},
 	}
 	service := NewAISolveService(
@@ -250,5 +277,8 @@ func TestAISolveServiceGetRun(t *testing.T) {
 	}
 	if run.ID != 5 || run.Status != model.AISolveRunStatusSuccess {
 		t.Fatalf("unexpected run: %+v", run)
+	}
+	if run.TokenInput != 12 || run.TokenOutput != 34 || run.LLMLatencyMS != 5 || run.TotalLatencyMS != 9 {
+		t.Fatalf("unexpected run cost fields: %+v", run)
 	}
 }

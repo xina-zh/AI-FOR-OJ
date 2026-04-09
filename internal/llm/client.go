@@ -31,8 +31,10 @@ type GenerateRequest struct {
 }
 
 type GenerateResponse struct {
-	Model   string
-	Content string
+	Model        string
+	Content      string
+	InputTokens  int64
+	OutputTokens int64
 }
 
 func NewClient(cfg config.LLMConfig, logger *slog.Logger) (Client, error) {
@@ -70,8 +72,10 @@ type MockClient struct {
 
 func (c *MockClient) Generate(_ context.Context, req GenerateRequest) (GenerateResponse, error) {
 	return GenerateResponse{
-		Model:   effectiveModel(req.Model, c.model),
-		Content: c.response,
+		Model:        effectiveModel(req.Model, c.model),
+		Content:      c.response,
+		InputTokens:  roughTokenCount(req.Prompt),
+		OutputTokens: roughTokenCount(c.response),
 	}, nil
 }
 
@@ -99,6 +103,10 @@ type openAICompatibleResponse struct {
 	Choices []struct {
 		Message openAICompatibleMessage `json:"message"`
 	} `json:"choices"`
+	Usage *struct {
+		PromptTokens     int64 `json:"prompt_tokens"`
+		CompletionTokens int64 `json:"completion_tokens"`
+	} `json:"usage,omitempty"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
@@ -163,8 +171,10 @@ func (c *OpenAICompatibleClient) Generate(ctx context.Context, req GenerateReque
 	}
 
 	return GenerateResponse{
-		Model:   effectiveModel(parsed.Model, req.Model, c.model),
-		Content: content,
+		Model:        effectiveModel(parsed.Model, req.Model, c.model),
+		Content:      content,
+		InputTokens:  usagePromptTokens(parsed.Usage),
+		OutputTokens: usageCompletionTokens(parsed.Usage),
 	}, nil
 }
 
@@ -183,4 +193,32 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func roughTokenCount(value string) int64 {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	return int64(len(strings.Fields(value)))
+}
+
+func usagePromptTokens(usage *struct {
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+}) int64 {
+	if usage == nil {
+		return 0
+	}
+	return usage.PromptTokens
+}
+
+func usageCompletionTokens(usage *struct {
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+}) int64 {
+	if usage == nil {
+		return 0
+	}
+	return usage.CompletionTokens
 }

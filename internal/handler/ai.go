@@ -37,25 +37,50 @@ func (h *AIHandler) Solve(c *gin.Context) {
 		}
 		switch {
 		case errors.Is(err, repository.ErrProblemNotFound):
-			c.JSON(http.StatusNotFound, dto.AISolveErrorResponse{Error: err.Error(), AISolveRunID: runID})
+			c.JSON(http.StatusNotFound, dto.AISolveErrorResponse{
+				Error:          err.Error(),
+				AISolveRunID:   runID,
+				TokenInput:     output.TokenInput,
+				TokenOutput:    output.TokenOutput,
+				LLMLatencyMS:   output.LLMLatencyMS,
+				TotalLatencyMS: output.TotalLatencyMS,
+			})
 		case errors.Is(err, service.ErrAISolveLLMFailed), errors.Is(err, service.ErrAISolveCodeNotExtracted):
-			c.JSON(http.StatusBadGateway, dto.AISolveErrorResponse{Error: err.Error(), AISolveRunID: runID})
+			c.JSON(http.StatusBadGateway, dto.AISolveErrorResponse{
+				Error:          err.Error(),
+				AISolveRunID:   runID,
+				TokenInput:     output.TokenInput,
+				TokenOutput:    output.TokenOutput,
+				LLMLatencyMS:   output.LLMLatencyMS,
+				TotalLatencyMS: output.TotalLatencyMS,
+			})
 		default:
-			c.JSON(http.StatusInternalServerError, dto.AISolveErrorResponse{Error: err.Error(), AISolveRunID: runID})
+			c.JSON(http.StatusInternalServerError, dto.AISolveErrorResponse{
+				Error:          err.Error(),
+				AISolveRunID:   runID,
+				TokenInput:     output.TokenInput,
+				TokenOutput:    output.TokenOutput,
+				LLMLatencyMS:   output.LLMLatencyMS,
+				TotalLatencyMS: output.TotalLatencyMS,
+			})
 		}
 		return
 	}
 
 	c.JSON(http.StatusCreated, dto.AISolveResponse{
-		AISolveRunID:  output.AISolveRunID,
-		ProblemID:     output.ProblemID,
-		Model:         output.Model,
-		PromptPreview: output.PromptPreview,
-		RawResponse:   output.RawResponse,
-		ExtractedCode: output.ExtractedCode,
-		SubmissionID:  output.SubmissionID,
-		Verdict:       output.Verdict,
-		ErrorMessage:  output.ErrorMessage,
+		AISolveRunID:   output.AISolveRunID,
+		ProblemID:      output.ProblemID,
+		Model:          output.Model,
+		PromptPreview:  output.PromptPreview,
+		RawResponse:    output.RawResponse,
+		ExtractedCode:  output.ExtractedCode,
+		SubmissionID:   output.SubmissionID,
+		Verdict:        output.Verdict,
+		ErrorMessage:   output.ErrorMessage,
+		TokenInput:     output.TokenInput,
+		TokenOutput:    output.TokenOutput,
+		LLMLatencyMS:   output.LLMLatencyMS,
+		TotalLatencyMS: output.TotalLatencyMS,
 	})
 }
 
@@ -77,17 +102,21 @@ func (h *AIHandler) GetRun(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, dto.AISolveRunResponse{
-		ID:            run.ID,
-		ProblemID:     run.ProblemID,
-		Model:         run.Model,
-		PromptPreview: run.PromptPreview,
-		RawResponse:   run.RawResponse,
-		ExtractedCode: run.ExtractedCode,
-		SubmissionID:  run.SubmissionID,
-		Verdict:       run.Verdict,
-		Status:        run.Status,
-		ErrorMessage:  run.ErrorMessage,
-		CreatedAt:     run.CreatedAt,
-		UpdatedAt:     run.UpdatedAt,
+		ID:             run.ID,
+		ProblemID:      run.ProblemID,
+		Model:          run.Model,
+		PromptPreview:  run.PromptPreview,
+		RawResponse:    run.RawResponse,
+		ExtractedCode:  run.ExtractedCode,
+		SubmissionID:   run.SubmissionID,
+		Verdict:        run.Verdict,
+		Status:         run.Status,
+		ErrorMessage:   run.ErrorMessage,
+		TokenInput:     run.TokenInput,
+		TokenOutput:    run.TokenOutput,
+		LLMLatencyMS:   run.LLMLatencyMS,
+		TotalLatencyMS: run.TotalLatencyMS,
+		CreatedAt:      run.CreatedAt,
+		UpdatedAt:      run.UpdatedAt,
 	})
 }
