@@ -3,11 +3,14 @@ package llm
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -19,6 +22,7 @@ const (
 	ProviderOpenAICompatible = "openai_compatible"
 	defaultMockModel         = "mock-cpp17"
 	defaultMockResponse      = "```cpp\n#include <bits/stdc++.h>\nusing namespace std;\nint main(){ios::sync_with_stdio(false);cin.tie(nullptr);string line;bool first=true;while(getline(cin,line)){if(!first) cout << \"\\n\";cout << line;first=false;}return 0;}\n```"
+	defaultChatMaxTokens     = 4096
 )
 
 type Client interface {
@@ -49,6 +53,9 @@ func NewClient(cfg config.LLMConfig, logger *slog.Logger) (Client, error) {
 			return nil, fmt.Errorf("llm api key is required when provider=%s", ProviderOpenAICompatible)
 		}
 		baseURL := strings.TrimRight(defaultString(cfg.BaseURL, "https://api.openai.com/v1"), "/")
+		if _, err := url.ParseRequestURI(baseURL); err != nil {
+			return nil, fmt.Errorf("invalid llm base url %q: %w", baseURL, err)
+		}
 		timeout := cfg.Timeout
 		if timeout <= 0 {
 			timeout = 30 * time.Second
@@ -57,8 +64,11 @@ func NewClient(cfg config.LLMConfig, logger *slog.Logger) (Client, error) {
 			baseURL: baseURL,
 			apiKey:  cfg.APIKey,
 			model:   cfg.Model,
-			client:  &http.Client{Timeout: timeout},
-			logger:  logger,
+			client: &http.Client{
+				Timeout:   timeout,
+				Transport: newOpenAICompatibleTransport(),
+			},
+			logger: logger,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported llm provider: %s", cfg.Provider)
@@ -88,9 +98,9 @@ type OpenAICompatibleClient struct {
 }
 
 type openAICompatibleRequest struct {
-	Model       string                    `json:"model"`
-	Messages    []openAICompatibleMessage `json:"messages"`
-	Temperature float64                   `json:"temperature"`
+	Model     string                    `json:"model"`
+	Messages  []openAICompatibleMessage `json:"messages"`
+	MaxTokens int                       `json:"max_tokens,omitempty"`
 }
 
 type openAICompatibleMessage struct {
@@ -113,7 +123,8 @@ type openAICompatibleResponse struct {
 }
 
 func (c *OpenAICompatibleClient) Generate(ctx context.Context, req GenerateRequest) (GenerateResponse, error) {
-	body, err := json.Marshal(openAICompatibleRequest{
+	requestURL := c.baseURL + "/chat/completions"
+	requestBody := openAICompatibleRequest{
 		Model: effectiveModel(req.Model, c.model),
 		Messages: []openAICompatibleMessage{
 			{
@@ -125,40 +136,26 @@ func (c *OpenAICompatibleClient) Generate(ctx context.Context, req GenerateReque
 				Content: req.Prompt,
 			},
 		},
-		Temperature: 0.2,
-	})
+		MaxTokens: defaultChatMaxTokens,
+	}
+	body, err := json.Marshal(requestBody)
 	if err != nil {
 		return GenerateResponse{}, fmt.Errorf("marshal llm request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	respBody, parsed, err := c.doChatCompletion(ctx, requestURL, body)
 	if err != nil {
-		return GenerateResponse{}, fmt.Errorf("build llm request: %w", err)
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.client.Do(httpReq)
-	if err != nil {
-		return GenerateResponse{}, fmt.Errorf("send llm request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return GenerateResponse{}, fmt.Errorf("read llm response: %w", err)
+		return GenerateResponse{}, err
 	}
 
-	var parsed openAICompatibleResponse
-	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return GenerateResponse{}, fmt.Errorf("decode llm response: %w", err)
-	}
-
-	if resp.StatusCode >= http.StatusBadRequest {
+	if parsed.StatusCode >= http.StatusBadRequest {
 		if parsed.Error != nil && strings.TrimSpace(parsed.Error.Message) != "" {
-			return GenerateResponse{}, fmt.Errorf("llm request failed: %s", parsed.Error.Message)
+			return GenerateResponse{}, fmt.Errorf("llm request failed url=%s status=%d: %s", requestURL, parsed.StatusCode, parsed.Error.Message)
 		}
-		return GenerateResponse{}, fmt.Errorf("llm request failed with status %d", resp.StatusCode)
+		if trimmed := strings.TrimSpace(string(respBody)); trimmed != "" {
+			return GenerateResponse{}, fmt.Errorf("llm request failed url=%s status=%d body=%s", requestURL, parsed.StatusCode, truncateErrorBody(trimmed, 512))
+		}
+		return GenerateResponse{}, fmt.Errorf("llm request failed url=%s status=%d", requestURL, parsed.StatusCode)
 	}
 
 	if len(parsed.Choices) == 0 {
@@ -175,6 +172,81 @@ func (c *OpenAICompatibleClient) Generate(ctx context.Context, req GenerateReque
 		Content:      content,
 		InputTokens:  usagePromptTokens(parsed.Usage),
 		OutputTokens: usageCompletionTokens(parsed.Usage),
+	}, nil
+}
+
+type parsedOpenAICompatibleResponse struct {
+	openAICompatibleResponse
+	StatusCode int
+}
+
+func (c *OpenAICompatibleClient) doChatCompletion(ctx context.Context, requestURL string, body []byte) ([]byte, parsedOpenAICompatibleResponse, error) {
+	const maxAttempts = 2
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		respBody, parsed, err := c.doChatCompletionOnce(ctx, requestURL, body)
+		if err == nil {
+			return respBody, parsed, nil
+		}
+		if attempt == maxAttempts || !isRetryableTransportError(err) {
+			return nil, parsed, err
+		}
+		if transport, ok := c.client.Transport.(*http.Transport); ok {
+			transport.CloseIdleConnections()
+		}
+	}
+
+	return nil, parsedOpenAICompatibleResponse{}, fmt.Errorf("llm request failed url=%s: exhausted retries", requestURL)
+}
+
+func (c *OpenAICompatibleClient) doChatCompletionOnce(ctx context.Context, requestURL string, body []byte) ([]byte, parsedOpenAICompatibleResponse, error) {
+	requestBodyPreview := truncateErrorBody(strings.TrimSpace(string(body)), 512)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, parsedOpenAICompatibleResponse{}, fmt.Errorf("build llm request url=%s: %w", requestURL, err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+	httpReq.Header.Set("User-Agent", "ai-for-oj/llm-client")
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return nil, parsedOpenAICompatibleResponse{}, fmt.Errorf(
+			"send llm request url=%s request_body=%s: %w",
+			requestURL,
+			requestBodyPreview,
+			err,
+		)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, parsedOpenAICompatibleResponse{StatusCode: resp.StatusCode}, fmt.Errorf(
+			"read llm response url=%s status=%d request_body=%s: %w",
+			requestURL,
+			resp.StatusCode,
+			requestBodyPreview,
+			err,
+		)
+	}
+
+	var parsed openAICompatibleResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return nil, parsedOpenAICompatibleResponse{StatusCode: resp.StatusCode}, fmt.Errorf(
+			"decode llm response url=%s status=%d request_body=%s body=%s: %w",
+			requestURL,
+			resp.StatusCode,
+			requestBodyPreview,
+			truncateErrorBody(strings.TrimSpace(string(respBody)), 512),
+			err,
+		)
+	}
+
+	return respBody, parsedOpenAICompatibleResponse{
+		openAICompatibleResponse: parsed,
+		StatusCode:               resp.StatusCode,
 	}, nil
 }
 
@@ -221,4 +293,34 @@ func usageCompletionTokens(usage *struct {
 		return 0
 	}
 	return usage.CompletionTokens
+}
+
+func newOpenAICompatibleTransport() *http.Transport {
+	return &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2:     false,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		TLSNextProto:          map[string]func(string, *tls.Conn) http.RoundTripper{},
+	}
+}
+
+func isRetryableTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "unexpected eof") || strings.Contains(message, "eof")
+}
+
+func truncateErrorBody(body string, limit int) string {
+	body = strings.TrimSpace(body)
+	if limit <= 0 || len(body) <= limit {
+		return body
+	}
+	return body[:limit] + "...(truncated)"
 }

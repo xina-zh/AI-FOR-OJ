@@ -40,3 +40,8 @@ llm:
   provider: mock
   model: mock-cpp17
   timeout: 30s
+  # When using a real OpenAI-compatible gateway such as gptsapi:
+  # provider: openai_compatible
+  # base_url: https://api.gptsapi.net/v1
+  # api_key: your-api-key
+  # model: your-actual-model-name

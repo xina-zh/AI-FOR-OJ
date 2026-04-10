@@ -31,6 +31,10 @@ services:
       SANDBOX_COMPILE_TIMEOUT: 10s
       SANDBOX_RUN_TIMEOUT_BUFFER: 500ms
       SANDBOX_COMPILE_MEMORY_MB: 512
+      LLM_PROVIDER: ${LLM_PROVIDER}
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL}
     ports:
       - "8080:8080"
     volumes:

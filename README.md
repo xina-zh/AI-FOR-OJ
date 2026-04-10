@@ -195,6 +195,30 @@ curl --noproxy '*' -sS http://127.0.0.1:8080/health
 docker pull gcc:13
 ```
 
+## LLM Provider 切换
+
+当前默认：
+
+- `provider=mock`
+
+这适合本地无 key 的开发和测试。
+
+如果要切到真实 OpenAI-compatible 网关，例如 gptsapi，可使用：
+
+```bash
+export LLM_PROVIDER=openai_compatible
+export LLM_BASE_URL=https://api.gptsapi.net/v1
+export LLM_API_KEY=your-api-key
+export LLM_MODEL=your-actual-model-name
+```
+
+说明：
+
+- 当前只接 `OpenAI-compatible /v1/chat/completions`
+- 模型名以中转站实际支持的名称为准
+- 每次 AI solve 都会记录实际 `model`
+- `AISolveRun` 也会记录最小 `token_input / token_output / llm_latency_ms / total_latency_ms`
+
 ## 当前路线说明
 
 当前阶段：
