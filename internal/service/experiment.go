@@ -38,6 +38,20 @@ type ExperimentRunOutput struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+type ExperimentCostSummary struct {
+	TotalTokenInput       int64   `json:"total_token_input"`
+	TotalTokenOutput      int64   `json:"total_token_output"`
+	TotalTokens           int64   `json:"total_tokens"`
+	AverageTokenInput     float64 `json:"average_token_input"`
+	AverageTokenOutput    float64 `json:"average_token_output"`
+	AverageTotalTokens    float64 `json:"average_total_tokens"`
+	TotalLLMLatencyMS     int     `json:"total_llm_latency_ms"`
+	TotalLatencyMS        int     `json:"total_latency_ms"`
+	AverageLLMLatencyMS   float64 `json:"average_llm_latency_ms"`
+	AverageTotalLatencyMS float64 `json:"average_total_latency_ms"`
+	RunCount              int     `json:"run_count"`
+}
+
 type ExperimentOutput struct {
 	ID                  uint                  `json:"id"`
 	Name                string                `json:"name"`
@@ -48,6 +62,7 @@ type ExperimentOutput struct {
 	ACCount             int                   `json:"ac_count"`
 	FailedCount         int                   `json:"failed_count"`
 	VerdictDistribution VerdictDistribution   `json:"verdict_distribution"`
+	CostSummary         ExperimentCostSummary `json:"cost_summary"`
 	CreatedAt           time.Time             `json:"created_at"`
 	UpdatedAt           time.Time             `json:"updated_at"`
 	Runs                []ExperimentRunOutput `json:"runs"`
@@ -98,6 +113,15 @@ func (s *ExperimentService) Run(ctx context.Context, input RunExperimentInput) (
 		if aiOutput != nil {
 			if aiOutput.AISolveRunID != 0 {
 				run.AISolveRunID = &aiOutput.AISolveRunID
+				run.AISolveRun = &model.AISolveRun{
+					BaseModel: model.BaseModel{
+						ID: aiOutput.AISolveRunID,
+					},
+					TokenInput:     aiOutput.TokenInput,
+					TokenOutput:    aiOutput.TokenOutput,
+					LLMLatencyMS:   aiOutput.LLMLatencyMS,
+					TotalLatencyMS: aiOutput.TotalLatencyMS,
+				}
 			}
 			if aiOutput.SubmissionID != 0 {
 				run.SubmissionID = &aiOutput.SubmissionID
@@ -148,6 +172,7 @@ func toExperimentOutput(experiment *model.Experiment) *ExperimentOutput {
 		SuccessCount: experiment.SuccessCount,
 		ACCount:      experiment.ACCount,
 		FailedCount:  experiment.FailedCount,
+		CostSummary:  buildExperimentCostSummary(experiment.Runs),
 		CreatedAt:    experiment.CreatedAt,
 		UpdatedAt:    experiment.UpdatedAt,
 		Runs:         make([]ExperimentRunOutput, 0, len(experiment.Runs)),
@@ -171,6 +196,34 @@ func toExperimentOutput(experiment *model.Experiment) *ExperimentOutput {
 		})
 	}
 	return output
+}
+
+func buildExperimentCostSummary(runs []model.ExperimentRun) ExperimentCostSummary {
+	var summary ExperimentCostSummary
+	for _, run := range runs {
+		if run.AISolveRunID == nil || run.AISolveRun == nil {
+			continue
+		}
+
+		summary.RunCount++
+		summary.TotalTokenInput += run.AISolveRun.TokenInput
+		summary.TotalTokenOutput += run.AISolveRun.TokenOutput
+		summary.TotalLLMLatencyMS += run.AISolveRun.LLMLatencyMS
+		summary.TotalLatencyMS += run.AISolveRun.TotalLatencyMS
+	}
+
+	summary.TotalTokens = summary.TotalTokenInput + summary.TotalTokenOutput
+	if summary.RunCount == 0 {
+		return summary
+	}
+
+	runCount := float64(summary.RunCount)
+	summary.AverageTokenInput = float64(summary.TotalTokenInput) / runCount
+	summary.AverageTokenOutput = float64(summary.TotalTokenOutput) / runCount
+	summary.AverageTotalTokens = float64(summary.TotalTokens) / runCount
+	summary.AverageLLMLatencyMS = float64(summary.TotalLLMLatencyMS) / runCount
+	summary.AverageTotalLatencyMS = float64(summary.TotalLatencyMS) / runCount
+	return summary
 }
 
 func defaultExperimentName(name string) string {

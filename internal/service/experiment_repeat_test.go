@@ -67,7 +67,15 @@ func TestExperimentRepeatServiceRepeat(t *testing.T) {
 				ACCount:             1,
 				FailedCount:         1,
 				VerdictDistribution: VerdictDistribution{ACCount: 1, WACount: 1},
-				Status:              ExperimentStatusCompleted,
+				CostSummary: ExperimentCostSummary{
+					TotalTokenInput:   100,
+					TotalTokenOutput:  40,
+					TotalTokens:       140,
+					TotalLLMLatencyMS: 200,
+					TotalLatencyMS:    320,
+					RunCount:          2,
+				},
+				Status: ExperimentStatusCompleted,
 				Runs: []ExperimentRunOutput{
 					{ProblemID: 1, Verdict: "AC", Status: ExperimentRunStatusSuccess},
 					{ProblemID: 2, Verdict: "WA", Status: ExperimentRunStatusSuccess},
@@ -82,7 +90,15 @@ func TestExperimentRepeatServiceRepeat(t *testing.T) {
 				ACCount:             2,
 				FailedCount:         0,
 				VerdictDistribution: VerdictDistribution{ACCount: 2},
-				Status:              ExperimentStatusCompleted,
+				CostSummary: ExperimentCostSummary{
+					TotalTokenInput:   120,
+					TotalTokenOutput:  60,
+					TotalTokens:       180,
+					TotalLLMLatencyMS: 220,
+					TotalLatencyMS:    360,
+					RunCount:          2,
+				},
+				Status: ExperimentStatusCompleted,
 				Runs: []ExperimentRunOutput{
 					{ProblemID: 1, Verdict: "AC", Status: ExperimentRunStatusSuccess},
 					{ProblemID: 2, Verdict: "AC", Status: ExperimentRunStatusSuccess},
@@ -97,6 +113,7 @@ func TestExperimentRepeatServiceRepeat(t *testing.T) {
 				ACCount:             0,
 				FailedCount:         1,
 				VerdictDistribution: VerdictDistribution{RECount: 1, UnknownCount: 1},
+				CostSummary:         ExperimentCostSummary{},
 				Status:              ExperimentStatusCompleted,
 				Runs: []ExperimentRunOutput{
 					{ProblemID: 1, Verdict: "RE", Status: ExperimentRunStatusSuccess},
@@ -128,6 +145,21 @@ func TestExperimentRepeatServiceRepeat(t *testing.T) {
 	}
 	if output.BestRoundACCount != 2 || output.WorstRoundACCount != 0 {
 		t.Fatalf("unexpected stability summary: %+v", output)
+	}
+	if output.CostSummary.RoundCount != 2 ||
+		output.CostSummary.TotalTokenInput != 220 ||
+		output.CostSummary.TotalTokenOutput != 100 ||
+		output.CostSummary.TotalTokens != 320 ||
+		output.CostSummary.TotalLLMLatencyMS != 420 ||
+		output.CostSummary.TotalLatencyMS != 680 {
+		t.Fatalf("unexpected repeat cost summary totals: %+v", output.CostSummary)
+	}
+	if output.CostSummary.AverageTokenInputPerRound != 110 ||
+		output.CostSummary.AverageTokenOutputPerRound != 50 ||
+		output.CostSummary.AverageTotalTokensPerRound != 160 ||
+		output.CostSummary.AverageLLMLatencyMSPerRound != 210 ||
+		output.CostSummary.AverageTotalLatencyMSPerRound != 340 {
+		t.Fatalf("unexpected repeat cost summary averages: %+v", output.CostSummary)
 	}
 	if len(output.RoundSummaries) != 3 || output.RoundSummaries[2].VerdictDistribution.RECount != 1 {
 		t.Fatalf("unexpected round summaries: %+v", output.RoundSummaries)
@@ -208,7 +240,15 @@ func TestExperimentRepeatServiceGet(t *testing.T) {
 				ACCount:             1,
 				FailedCount:         1,
 				VerdictDistribution: VerdictDistribution{ACCount: 1, WACount: 1},
-				Status:              ExperimentStatusCompleted,
+				CostSummary: ExperimentCostSummary{
+					TotalTokenInput:   90,
+					TotalTokenOutput:  30,
+					TotalTokens:       120,
+					TotalLLMLatencyMS: 150,
+					TotalLatencyMS:    260,
+					RunCount:          2,
+				},
+				Status: ExperimentStatusCompleted,
 				Runs: []ExperimentRunOutput{
 					{ProblemID: 1, Verdict: "AC", Status: ExperimentRunStatusSuccess},
 					{ProblemID: 2, Verdict: "WA", Status: ExperimentRunStatusSuccess},
@@ -219,6 +259,7 @@ func TestExperimentRepeatServiceGet(t *testing.T) {
 				ACCount:             2,
 				FailedCount:         0,
 				VerdictDistribution: VerdictDistribution{ACCount: 2},
+				CostSummary:         ExperimentCostSummary{},
 				Status:              ExperimentStatusCompleted,
 				Runs: []ExperimentRunOutput{
 					{ProblemID: 1, Verdict: "AC", Status: ExperimentRunStatusSuccess},
@@ -238,6 +279,19 @@ func TestExperimentRepeatServiceGet(t *testing.T) {
 	}
 	if output.OverallACCount != 3 || output.OverallFailedCount != 1 {
 		t.Fatalf("unexpected aggregate output: %+v", output)
+	}
+	if output.CostSummary.RoundCount != 1 ||
+		output.CostSummary.TotalTokenInput != 90 ||
+		output.CostSummary.TotalTokenOutput != 30 ||
+		output.CostSummary.TotalTokens != 120 ||
+		output.CostSummary.TotalLLMLatencyMS != 150 ||
+		output.CostSummary.TotalLatencyMS != 260 ||
+		output.CostSummary.AverageTokenInputPerRound != 90 ||
+		output.CostSummary.AverageTokenOutputPerRound != 30 ||
+		output.CostSummary.AverageTotalTokensPerRound != 120 ||
+		output.CostSummary.AverageLLMLatencyMSPerRound != 150 ||
+		output.CostSummary.AverageTotalLatencyMSPerRound != 260 {
+		t.Fatalf("unexpected repeat cost summary on get: %+v", output.CostSummary)
 	}
 	if len(output.ProblemSummaries) != 2 || output.ProblemSummaries[0].ProblemID != 1 || output.ProblemSummaries[1].ProblemID != 2 {
 		t.Fatalf("unexpected problem summaries: %+v", output.ProblemSummaries)

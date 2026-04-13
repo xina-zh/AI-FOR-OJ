@@ -47,6 +47,35 @@ type ExperimentCompareHighlightedProblem struct {
 	CandidateSubmissionID *uint  `json:"candidate_submission_id,omitempty"`
 }
 
+type ExperimentCompareCostComparison struct {
+	BaselineTotalTokenInput        int64   `json:"baseline_total_token_input"`
+	BaselineTotalTokenOutput       int64   `json:"baseline_total_token_output"`
+	BaselineTotalTokens            int64   `json:"baseline_total_tokens"`
+	BaselineAverageTokenInput      float64 `json:"baseline_average_token_input"`
+	BaselineAverageTokenOutput     float64 `json:"baseline_average_token_output"`
+	BaselineAverageTotalTokens     float64 `json:"baseline_average_total_tokens"`
+	BaselineTotalLLMLatencyMS      int     `json:"baseline_total_llm_latency_ms"`
+	BaselineTotalLatencyMS         int     `json:"baseline_total_latency_ms"`
+	BaselineAverageLLMLatencyMS    float64 `json:"baseline_average_llm_latency_ms"`
+	BaselineAverageTotalLatencyMS  float64 `json:"baseline_average_total_latency_ms"`
+	BaselineRunCount               int     `json:"baseline_run_count"`
+	CandidateTotalTokenInput       int64   `json:"candidate_total_token_input"`
+	CandidateTotalTokenOutput      int64   `json:"candidate_total_token_output"`
+	CandidateTotalTokens           int64   `json:"candidate_total_tokens"`
+	CandidateAverageTokenInput     float64 `json:"candidate_average_token_input"`
+	CandidateAverageTokenOutput    float64 `json:"candidate_average_token_output"`
+	CandidateAverageTotalTokens    float64 `json:"candidate_average_total_tokens"`
+	CandidateTotalLLMLatencyMS     int     `json:"candidate_total_llm_latency_ms"`
+	CandidateTotalLatencyMS        int     `json:"candidate_total_latency_ms"`
+	CandidateAverageLLMLatencyMS   float64 `json:"candidate_average_llm_latency_ms"`
+	CandidateAverageTotalLatencyMS float64 `json:"candidate_average_total_latency_ms"`
+	CandidateRunCount              int     `json:"candidate_run_count"`
+	DeltaTotalTokens               int64   `json:"delta_total_tokens"`
+	DeltaAverageTotalTokens        float64 `json:"delta_average_total_tokens"`
+	DeltaTotalLatencyMS            int     `json:"delta_total_latency_ms"`
+	DeltaAverageTotalLatencyMS     float64 `json:"delta_average_total_latency_ms"`
+}
+
 type ExperimentCompareOutput struct {
 	ID                    uint                                  `json:"id"`
 	Name                  string                                `json:"name"`
@@ -61,6 +90,7 @@ type ExperimentCompareOutput struct {
 	BaselineDistribution  VerdictDistribution                   `json:"baseline_verdict_distribution"`
 	CandidateDistribution VerdictDistribution                   `json:"candidate_verdict_distribution"`
 	DeltaDistribution     VerdictDistribution                   `json:"delta_verdict_distribution"`
+	CostComparison        ExperimentCompareCostComparison       `json:"cost_comparison"`
 	ImprovedCount         int                                   `json:"improved_count"`
 	RegressedCount        int                                   `json:"regressed_count"`
 	ChangedNonACCount     int                                   `json:"changed_non_ac_count"`
@@ -158,6 +188,7 @@ func (s *ExperimentCompareService) Compare(ctx context.Context, input CompareExp
 		BaselineDistribution:  baseline.VerdictDistribution,
 		CandidateDistribution: candidate.VerdictDistribution,
 		DeltaDistribution:     DiffVerdictDistribution(candidate.VerdictDistribution, baseline.VerdictDistribution),
+		CostComparison:        buildExperimentCompareCostComparison(baseline, candidate),
 		ImprovedCount:         improvedCount,
 		RegressedCount:        regressedCount,
 		ChangedNonACCount:     changedNonACCount,
@@ -217,6 +248,7 @@ func (s *ExperimentCompareService) Get(ctx context.Context, compareID uint) (*Ex
 		BaselineDistribution:  verdictDistributionOf(baseline),
 		CandidateDistribution: verdictDistributionOf(candidate),
 		DeltaDistribution:     DiffVerdictDistribution(verdictDistributionOf(candidate), verdictDistributionOf(baseline)),
+		CostComparison:        buildExperimentCompareCostComparison(baseline, candidate),
 		ImprovedCount:         improvedCount,
 		RegressedCount:        regressedCount,
 		ChangedNonACCount:     changedNonACCount,
@@ -236,6 +268,47 @@ func verdictDistributionOf(output *ExperimentOutput) VerdictDistribution {
 		return VerdictDistribution{}
 	}
 	return output.VerdictDistribution
+}
+
+func costSummaryOf(output *ExperimentOutput) ExperimentCostSummary {
+	if output == nil {
+		return ExperimentCostSummary{}
+	}
+	return output.CostSummary
+}
+
+func buildExperimentCompareCostComparison(baseline, candidate *ExperimentOutput) ExperimentCompareCostComparison {
+	baselineCost := costSummaryOf(baseline)
+	candidateCost := costSummaryOf(candidate)
+
+	return ExperimentCompareCostComparison{
+		BaselineTotalTokenInput:        baselineCost.TotalTokenInput,
+		BaselineTotalTokenOutput:       baselineCost.TotalTokenOutput,
+		BaselineTotalTokens:            baselineCost.TotalTokens,
+		BaselineAverageTokenInput:      baselineCost.AverageTokenInput,
+		BaselineAverageTokenOutput:     baselineCost.AverageTokenOutput,
+		BaselineAverageTotalTokens:     baselineCost.AverageTotalTokens,
+		BaselineTotalLLMLatencyMS:      baselineCost.TotalLLMLatencyMS,
+		BaselineTotalLatencyMS:         baselineCost.TotalLatencyMS,
+		BaselineAverageLLMLatencyMS:    baselineCost.AverageLLMLatencyMS,
+		BaselineAverageTotalLatencyMS:  baselineCost.AverageTotalLatencyMS,
+		BaselineRunCount:               baselineCost.RunCount,
+		CandidateTotalTokenInput:       candidateCost.TotalTokenInput,
+		CandidateTotalTokenOutput:      candidateCost.TotalTokenOutput,
+		CandidateTotalTokens:           candidateCost.TotalTokens,
+		CandidateAverageTokenInput:     candidateCost.AverageTokenInput,
+		CandidateAverageTokenOutput:    candidateCost.AverageTokenOutput,
+		CandidateAverageTotalTokens:    candidateCost.AverageTotalTokens,
+		CandidateTotalLLMLatencyMS:     candidateCost.TotalLLMLatencyMS,
+		CandidateTotalLatencyMS:        candidateCost.TotalLatencyMS,
+		CandidateAverageLLMLatencyMS:   candidateCost.AverageLLMLatencyMS,
+		CandidateAverageTotalLatencyMS: candidateCost.AverageTotalLatencyMS,
+		CandidateRunCount:              candidateCost.RunCount,
+		DeltaTotalTokens:               candidateCost.TotalTokens - baselineCost.TotalTokens,
+		DeltaAverageTotalTokens:        candidateCost.AverageTotalTokens - baselineCost.AverageTotalTokens,
+		DeltaTotalLatencyMS:            candidateCost.TotalLatencyMS - baselineCost.TotalLatencyMS,
+		DeltaAverageTotalLatencyMS:     candidateCost.AverageTotalLatencyMS - baselineCost.AverageTotalLatencyMS,
+	}
 }
 
 func (s *ExperimentCompareService) failCompare(ctx context.Context, compare *model.ExperimentCompare, runErr error) (*ExperimentCompareOutput, error) {

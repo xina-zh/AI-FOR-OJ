@@ -91,6 +91,19 @@ func TestExperimentCompareServiceCompare(t *testing.T) {
 				ACCount:             1,
 				FailedCount:         0,
 				VerdictDistribution: VerdictDistribution{ACCount: 1, WACount: 1, CECount: 1},
+				CostSummary: ExperimentCostSummary{
+					TotalTokenInput:       300,
+					TotalTokenOutput:      120,
+					TotalTokens:           420,
+					AverageTokenInput:     100,
+					AverageTokenOutput:    40,
+					AverageTotalTokens:    140,
+					TotalLLMLatencyMS:     450,
+					TotalLatencyMS:        780,
+					AverageLLMLatencyMS:   150,
+					AverageTotalLatencyMS: 260,
+					RunCount:              3,
+				},
 				Runs: []ExperimentRunOutput{
 					{ProblemID: 1, Verdict: "WA", Status: ExperimentRunStatusSuccess, SubmissionID: uintPtr(101)},
 					{ProblemID: 2, Verdict: "AC", Status: ExperimentRunStatusSuccess, SubmissionID: uintPtr(102)},
@@ -106,6 +119,19 @@ func TestExperimentCompareServiceCompare(t *testing.T) {
 				ACCount:             2,
 				FailedCount:         0,
 				VerdictDistribution: VerdictDistribution{ACCount: 2, RECount: 1},
+				CostSummary: ExperimentCostSummary{
+					TotalTokenInput:       360,
+					TotalTokenOutput:      150,
+					TotalTokens:           510,
+					AverageTokenInput:     120,
+					AverageTokenOutput:    50,
+					AverageTotalTokens:    170,
+					TotalLLMLatencyMS:     510,
+					TotalLatencyMS:        870,
+					AverageLLMLatencyMS:   170,
+					AverageTotalLatencyMS: 290,
+					RunCount:              3,
+				},
 				Runs: []ExperimentRunOutput{
 					{ProblemID: 1, Verdict: "AC", Status: ExperimentRunStatusSuccess, SubmissionID: uintPtr(201)},
 					{ProblemID: 2, Verdict: "AC", Status: ExperimentRunStatusSuccess, SubmissionID: uintPtr(202)},
@@ -123,6 +149,19 @@ func TestExperimentCompareServiceCompare(t *testing.T) {
 				ACCount:             1,
 				FailedCount:         0,
 				VerdictDistribution: VerdictDistribution{ACCount: 1, WACount: 1, CECount: 1},
+				CostSummary: ExperimentCostSummary{
+					TotalTokenInput:       300,
+					TotalTokenOutput:      120,
+					TotalTokens:           420,
+					AverageTokenInput:     100,
+					AverageTokenOutput:    40,
+					AverageTotalTokens:    140,
+					TotalLLMLatencyMS:     450,
+					TotalLatencyMS:        780,
+					AverageLLMLatencyMS:   150,
+					AverageTotalLatencyMS: 260,
+					RunCount:              3,
+				},
 				Runs: []ExperimentRunOutput{
 					{ProblemID: 1, Verdict: "WA", Status: ExperimentRunStatusSuccess, SubmissionID: uintPtr(101)},
 					{ProblemID: 2, Verdict: "AC", Status: ExperimentRunStatusSuccess, SubmissionID: uintPtr(102)},
@@ -138,6 +177,19 @@ func TestExperimentCompareServiceCompare(t *testing.T) {
 				ACCount:             2,
 				FailedCount:         0,
 				VerdictDistribution: VerdictDistribution{ACCount: 2, RECount: 1},
+				CostSummary: ExperimentCostSummary{
+					TotalTokenInput:       360,
+					TotalTokenOutput:      150,
+					TotalTokens:           510,
+					AverageTokenInput:     120,
+					AverageTokenOutput:    50,
+					AverageTotalTokens:    170,
+					TotalLLMLatencyMS:     510,
+					TotalLatencyMS:        870,
+					AverageLLMLatencyMS:   170,
+					AverageTotalLatencyMS: 290,
+					RunCount:              3,
+				},
 				Runs: []ExperimentRunOutput{
 					{ProblemID: 1, Verdict: "AC", Status: ExperimentRunStatusSuccess, SubmissionID: uintPtr(201)},
 					{ProblemID: 2, Verdict: "AC", Status: ExperimentRunStatusSuccess, SubmissionID: uintPtr(202)},
@@ -171,6 +223,14 @@ func TestExperimentCompareServiceCompare(t *testing.T) {
 	}
 	if output.BaselineDistribution.WACount != 1 || output.CandidateDistribution.ACCount != 2 || output.DeltaDistribution.ACCount != 1 || output.DeltaDistribution.WACount != -1 {
 		t.Fatalf("unexpected verdict distribution delta: %+v", output)
+	}
+	if output.CostComparison.BaselineTotalTokens != 420 ||
+		output.CostComparison.CandidateTotalTokens != 510 ||
+		output.CostComparison.DeltaTotalTokens != 90 ||
+		output.CostComparison.DeltaAverageTotalTokens != 30 ||
+		output.CostComparison.DeltaTotalLatencyMS != 90 ||
+		output.CostComparison.DeltaAverageTotalLatencyMS != 30 {
+		t.Fatalf("unexpected cost comparison summary: %+v", output.CostComparison)
 	}
 	if output.ImprovedCount != 1 || output.RegressedCount != 0 || output.ChangedNonACCount != 1 {
 		t.Fatalf("unexpected change summary: %+v", output)
@@ -252,6 +312,19 @@ func TestExperimentCompareServiceGet(t *testing.T) {
 				ID:                  10,
 				Name:                "baseline",
 				VerdictDistribution: VerdictDistribution{ACCount: 1, WACount: 1},
+				CostSummary: ExperimentCostSummary{
+					TotalTokenInput:       210,
+					TotalTokenOutput:      90,
+					TotalTokens:           300,
+					AverageTokenInput:     105,
+					AverageTokenOutput:    45,
+					AverageTotalTokens:    150,
+					TotalLLMLatencyMS:     260,
+					TotalLatencyMS:        480,
+					AverageLLMLatencyMS:   130,
+					AverageTotalLatencyMS: 240,
+					RunCount:              2,
+				},
 				Runs: []ExperimentRunOutput{
 					{ProblemID: 1, Verdict: "WA", Status: ExperimentRunStatusSuccess, SubmissionID: uintPtr(101)},
 					{ProblemID: 2, Verdict: "AC", Status: ExperimentRunStatusSuccess, SubmissionID: uintPtr(102)},
@@ -261,6 +334,19 @@ func TestExperimentCompareServiceGet(t *testing.T) {
 				ID:                  20,
 				Name:                "candidate",
 				VerdictDistribution: VerdictDistribution{ACCount: 1, CECount: 1},
+				CostSummary: ExperimentCostSummary{
+					TotalTokenInput:       180,
+					TotalTokenOutput:      60,
+					TotalTokens:           240,
+					AverageTokenInput:     90,
+					AverageTokenOutput:    30,
+					AverageTotalTokens:    120,
+					TotalLLMLatencyMS:     220,
+					TotalLatencyMS:        390,
+					AverageLLMLatencyMS:   110,
+					AverageTotalLatencyMS: 195,
+					RunCount:              2,
+				},
 				Runs: []ExperimentRunOutput{
 					{ProblemID: 1, Verdict: "RE", Status: ExperimentRunStatusSuccess, SubmissionID: uintPtr(201)},
 					{ProblemID: 2, Verdict: "AC", Status: ExperimentRunStatusSuccess, SubmissionID: uintPtr(202)},
@@ -284,6 +370,14 @@ func TestExperimentCompareServiceGet(t *testing.T) {
 	}
 	if output.DeltaDistribution.CECount != 1 || output.DeltaDistribution.WACount != -1 {
 		t.Fatalf("unexpected delta distribution on get: %+v", output.DeltaDistribution)
+	}
+	if output.CostComparison.BaselineRunCount != 2 ||
+		output.CostComparison.CandidateRunCount != 2 ||
+		output.CostComparison.DeltaTotalTokens != -60 ||
+		output.CostComparison.DeltaAverageTotalTokens != -30 ||
+		output.CostComparison.DeltaTotalLatencyMS != -90 ||
+		output.CostComparison.DeltaAverageTotalLatencyMS != -45 {
+		t.Fatalf("unexpected cost comparison on get: %+v", output.CostComparison)
 	}
 	if output.ImprovedCount != 0 || output.RegressedCount != 0 || output.ChangedNonACCount != 1 {
 		t.Fatalf("unexpected per-problem change counts: %+v", output)

@@ -25,16 +25,17 @@ type ExperimentRunResponse struct {
 }
 
 type ExperimentResponse struct {
-	ID                  uint                        `json:"id"`
-	Name                string                      `json:"name"`
-	Model               string                      `json:"model"`
-	Status              string                      `json:"status"`
-	TotalCount          int                         `json:"total_count"`
-	SuccessCount        int                         `json:"success_count"`
-	ACCount             int                         `json:"ac_count"`
-	FailedCount         int                         `json:"failed_count"`
-	VerdictDistribution service.VerdictDistribution `json:"verdict_distribution"`
-	CreatedAt           time.Time                   `json:"created_at"`
-	UpdatedAt           time.Time                   `json:"updated_at"`
-	Runs                []ExperimentRunResponse     `json:"runs"`
+	ID                  uint                          `json:"id"`
+	Name                string                        `json:"name"`
+	Model               string                        `json:"model"`
+	Status              string                        `json:"status"`
+	TotalCount          int                           `json:"total_count"`
+	SuccessCount        int                           `json:"success_count"`
+	ACCount             int                           `json:"ac_count"`
+	FailedCount         int                           `json:"failed_count"`
+	VerdictDistribution service.VerdictDistribution   `json:"verdict_distribution"`
+	CostSummary         service.ExperimentCostSummary `json:"cost_summary"`
+	CreatedAt           time.Time                     `json:"created_at"`
+	UpdatedAt           time.Time                     `json:"updated_at"`
+	Runs                []ExperimentRunResponse       `json:"runs"`
 }

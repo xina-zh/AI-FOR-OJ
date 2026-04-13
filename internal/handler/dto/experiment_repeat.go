@@ -60,6 +60,7 @@ type ExperimentRepeatResponse struct {
 	OverallACRate              float64                                   `json:"overall_ac_rate"`
 	BestRoundACCount           int                                       `json:"best_round_ac_count"`
 	WorstRoundACCount          int                                       `json:"worst_round_ac_count"`
+	CostSummary                service.ExperimentRepeatCostSummary       `json:"cost_summary"`
 	Status                     string                                    `json:"status"`
 	ErrorMessage               string                                    `json:"error_message,omitempty"`
 	RoundSummaries             []ExperimentRepeatRoundSummaryResponse    `json:"round_summaries"`

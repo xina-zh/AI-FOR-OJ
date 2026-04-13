@@ -49,6 +49,7 @@ type ExperimentCompareResponse struct {
 	BaselineDistribution  service.VerdictDistribution                   `json:"baseline_verdict_distribution"`
 	CandidateDistribution service.VerdictDistribution                   `json:"candidate_verdict_distribution"`
 	DeltaDistribution     service.VerdictDistribution                   `json:"delta_verdict_distribution"`
+	CostComparison        service.ExperimentCompareCostComparison       `json:"cost_comparison"`
 	ImprovedCount         int                                           `json:"improved_count"`
 	RegressedCount        int                                           `json:"regressed_count"`
 	ChangedNonACCount     int                                           `json:"changed_non_ac_count"`

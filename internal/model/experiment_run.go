@@ -15,6 +15,7 @@ type ExperimentRun struct {
 	TokenOutput  int64        `gorm:"column:token_output;not null" json:"token_output"`
 	LatencyMS    int          `gorm:"column:latency_ms;not null" json:"latency_ms"`
 	ToolCalls    int          `gorm:"column:tool_calls;not null" json:"tool_calls"`
+	AISolveRun   *AISolveRun  `gorm:"foreignKey:AISolveRunID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;" json:"ai_solve_run,omitempty"`
 	Experiment   Experiment   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"experiment,omitempty"`
 	Submission   *Submission  `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;" json:"submission,omitempty"`
 	TraceEvents  []TraceEvent `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"trace_events,omitempty"`

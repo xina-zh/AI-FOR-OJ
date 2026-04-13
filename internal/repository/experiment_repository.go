@@ -44,6 +44,7 @@ func (r *GORMExperimentRepository) GetByIDWithRuns(ctx context.Context, experime
 		Preload("Runs", func(db *gorm.DB) *gorm.DB {
 			return db.Order("attempt_no ASC, id ASC")
 		}).
+		Preload("Runs.AISolveRun").
 		First(&experiment, experimentID).
 		Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

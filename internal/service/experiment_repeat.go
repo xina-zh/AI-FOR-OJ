@@ -49,6 +49,20 @@ type ExperimentRepeatUnstableProblem struct {
 	VerdictKindCount    int                 `json:"verdict_kind_count"`
 }
 
+type ExperimentRepeatCostSummary struct {
+	TotalTokenInput               int64   `json:"total_token_input"`
+	TotalTokenOutput              int64   `json:"total_token_output"`
+	TotalTokens                   int64   `json:"total_tokens"`
+	AverageTokenInputPerRound     float64 `json:"average_token_input_per_round"`
+	AverageTokenOutputPerRound    float64 `json:"average_token_output_per_round"`
+	AverageTotalTokensPerRound    float64 `json:"average_total_tokens_per_round"`
+	TotalLLMLatencyMS             int     `json:"total_llm_latency_ms"`
+	TotalLatencyMS                int     `json:"total_latency_ms"`
+	AverageLLMLatencyMSPerRound   float64 `json:"average_llm_latency_ms_per_round"`
+	AverageTotalLatencyMSPerRound float64 `json:"average_total_latency_ms_per_round"`
+	RoundCount                    int     `json:"round_count"`
+}
+
 type ExperimentRepeatOutput struct {
 	ID                         uint                              `json:"id"`
 	Name                       string                            `json:"name"`
@@ -65,6 +79,7 @@ type ExperimentRepeatOutput struct {
 	OverallACRate              float64                           `json:"overall_ac_rate"`
 	BestRoundACCount           int                               `json:"best_round_ac_count"`
 	WorstRoundACCount          int                               `json:"worst_round_ac_count"`
+	CostSummary                ExperimentRepeatCostSummary       `json:"cost_summary"`
 	Status                     string                            `json:"status"`
 	ErrorMessage               string                            `json:"error_message,omitempty"`
 	RoundSummaries             []ExperimentRepeatRoundSummary    `json:"round_summaries"`
@@ -179,6 +194,7 @@ func buildExperimentRepeatOutput(
 		ExperimentIDs:        append([]uint(nil), experimentIDs...),
 		TotalProblemCount:    len(problemIDs),
 		TotalRunCount:        len(problemIDs) * repeat.RepeatCount,
+		CostSummary:          buildExperimentRepeatCostSummary(rounds),
 		Status:               repeat.Status,
 		ErrorMessage:         repeat.ErrorMessage,
 		RoundSummaries:       make([]ExperimentRepeatRoundSummary, 0, len(rounds)),
@@ -221,6 +237,34 @@ func buildExperimentRepeatOutput(
 	output.ProblemSummaries = buildRepeatProblemSummaries(problemIDs, rounds)
 	output.MostUnstableProblems = buildMostUnstableProblems(output.ProblemSummaries)
 	return output
+}
+
+func buildExperimentRepeatCostSummary(rounds []*ExperimentOutput) ExperimentRepeatCostSummary {
+	var summary ExperimentRepeatCostSummary
+	for _, round := range rounds {
+		if round == nil || round.CostSummary.RunCount == 0 {
+			continue
+		}
+
+		summary.RoundCount++
+		summary.TotalTokenInput += round.CostSummary.TotalTokenInput
+		summary.TotalTokenOutput += round.CostSummary.TotalTokenOutput
+		summary.TotalLLMLatencyMS += round.CostSummary.TotalLLMLatencyMS
+		summary.TotalLatencyMS += round.CostSummary.TotalLatencyMS
+	}
+
+	summary.TotalTokens = summary.TotalTokenInput + summary.TotalTokenOutput
+	if summary.RoundCount == 0 {
+		return summary
+	}
+
+	roundCount := float64(summary.RoundCount)
+	summary.AverageTokenInputPerRound = float64(summary.TotalTokenInput) / roundCount
+	summary.AverageTokenOutputPerRound = float64(summary.TotalTokenOutput) / roundCount
+	summary.AverageTotalTokensPerRound = float64(summary.TotalTokens) / roundCount
+	summary.AverageLLMLatencyMSPerRound = float64(summary.TotalLLMLatencyMS) / roundCount
+	summary.AverageTotalLatencyMSPerRound = float64(summary.TotalLatencyMS) / roundCount
+	return summary
 }
 
 func buildRepeatProblemSummaries(problemIDs []uint, rounds []*ExperimentOutput) []ExperimentRepeatProblemSummary {
