@@ -100,7 +100,7 @@ func (s *ExperimentService) Run(ctx context.Context, input RunExperimentInput) (
 	for index, problemID := range input.ProblemIDs {
 		aiOutput, err := s.aiSolver.Solve(ctx, AISolveInput{
 			ProblemID: problemID,
-			Model:     input.Model,
+			Model:     experiment.ModelName,
 		})
 
 		run := &model.ExperimentRun{

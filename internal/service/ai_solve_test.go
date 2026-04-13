@@ -124,6 +124,9 @@ func TestAISolveServiceSolve(t *testing.T) {
 	if !strings.Contains(llmClient.request.Prompt, "A + B") {
 		t.Fatalf("expected prompt to include problem title, got %q", llmClient.request.Prompt)
 	}
+	if llmClient.request.Model != "default-model" {
+		t.Fatalf("expected default model to be passed to llm client, got %q", llmClient.request.Model)
+	}
 
 	if judgeSubmitter.input.SourceType != model.SourceTypeAI {
 		t.Fatalf("expected source type %s, got %s", model.SourceTypeAI, judgeSubmitter.input.SourceType)
@@ -159,6 +162,45 @@ func TestAISolveServiceSolve(t *testing.T) {
 	}
 	if runRepo.updated[0].TotalLatencyMS < runRepo.updated[0].LLMLatencyMS {
 		t.Fatalf("expected latency persisted, got %+v", runRepo.updated[0])
+	}
+}
+
+func TestAISolveServiceSolvePrefersRequestModel(t *testing.T) {
+	llmClient := &fakeLLMClient{
+		response: llm.GenerateResponse{
+			Model:   "request-model",
+			Content: "```cpp\nint main(){return 0;}\n```",
+		},
+	}
+	judgeSubmitter := &fakeJudgeSubmitter{
+		output: &JudgeSubmissionOutput{SubmissionID: 10, ProblemID: 1, SourceType: model.SourceTypeAI, Verdict: "AC"},
+	}
+	service := NewAISolveService(
+		fakeProblemRepository{
+			problem: &model.Problem{
+				BaseModel:   model.BaseModel{ID: 1},
+				Title:       "Echo",
+				Description: "echo input",
+				InputSpec:   "line",
+				OutputSpec:  "line",
+				Samples:     "[]",
+			},
+		},
+		&fakeAISolveRunRepository{},
+		llmClient,
+		judgeSubmitter,
+		"default-model",
+	)
+
+	output, err := service.Solve(context.Background(), AISolveInput{ProblemID: 1, Model: "request-model"})
+	if err != nil {
+		t.Fatalf("solve returned error: %v", err)
+	}
+	if llmClient.request.Model != "request-model" {
+		t.Fatalf("expected request model to be passed to llm client, got %q", llmClient.request.Model)
+	}
+	if output.Model != "request-model" {
+		t.Fatalf("expected output model to reflect request model, got %q", output.Model)
 	}
 }
 

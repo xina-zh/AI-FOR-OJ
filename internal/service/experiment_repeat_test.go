@@ -137,6 +137,11 @@ func TestExperimentRepeatServiceRepeat(t *testing.T) {
 	if len(runner.runInputs) != 3 {
 		t.Fatalf("expected 3 rounds, got %d", len(runner.runInputs))
 	}
+	for _, input := range runner.runInputs {
+		if input.Model != "mock-cpp17" {
+			t.Fatalf("expected repeat model to be passed to every round, got %+v", runner.runInputs)
+		}
+	}
 	if output.TotalProblemCount != 2 || output.TotalRunCount != 6 {
 		t.Fatalf("unexpected total counts: %+v", output)
 	}
@@ -218,6 +223,9 @@ func TestExperimentRepeatServiceRepeatMarksFailedOnRoundError(t *testing.T) {
 	}
 	if repo.updated == nil || repo.updated.Status != model.ExperimentRepeatStatusFailed || repo.updated.ErrorMessage == "" {
 		t.Fatalf("expected failed repeat to be persisted, got %+v", repo.updated)
+	}
+	if len(runner.runInputs) != 2 || runner.runInputs[0].Model != "mock-cpp17" || runner.runInputs[1].Model != "mock-cpp17" {
+		t.Fatalf("expected repeat to preserve model across rounds before failure, got %+v", runner.runInputs)
 	}
 }
 

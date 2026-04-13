@@ -143,6 +143,9 @@ func TestExperimentServiceRun(t *testing.T) {
 	if len(output.Runs) != 2 {
 		t.Fatalf("expected 2 runs, got %d", len(output.Runs))
 	}
+	if len(aiSolver.inputs) != 2 || aiSolver.inputs[0].Model != "mock-cpp17" || aiSolver.inputs[1].Model != "mock-cpp17" {
+		t.Fatalf("expected experiment model to be passed to every solve, got %+v", aiSolver.inputs)
+	}
 
 	if output.Runs[0].AttemptNo != 1 || output.Runs[1].AttemptNo != 2 {
 		t.Fatalf("expected sequential attempt numbers, got %+v", output.Runs)
@@ -200,6 +203,34 @@ func TestExperimentServiceRunContinuesAfterFailure(t *testing.T) {
 
 	if output.Runs[1].Status != ExperimentRunStatusFailed || output.Runs[1].ErrorMessage == "" {
 		t.Fatalf("expected failed run to be recorded, got %+v", output.Runs[1])
+	}
+	if aiSolver.inputs[0].Model != "mock-cpp17" || aiSolver.inputs[1].Model != "mock-cpp17" || aiSolver.inputs[2].Model != "mock-cpp17" {
+		t.Fatalf("expected resolved experiment model to be preserved across all solves, got %+v", aiSolver.inputs)
+	}
+}
+
+func TestExperimentServiceRunFallsBackToDefaultModelForEverySolve(t *testing.T) {
+	repo := &fakeExperimentRepository{}
+	aiSolver := &fakeBatchAISolver{
+		outputs: map[uint]*AISolveOutput{
+			1: {AISolveRunID: 31, ProblemID: 1, SubmissionID: 301, Verdict: "AC"},
+		},
+		errors: map[uint]error{},
+	}
+	service := NewExperimentService(repo, aiSolver, "default-model")
+
+	output, err := service.Run(context.Background(), RunExperimentInput{
+		Name:       "batch-default",
+		ProblemIDs: []uint{1},
+	})
+	if err != nil {
+		t.Fatalf("run experiment returned error: %v", err)
+	}
+	if output.Model != "default-model" {
+		t.Fatalf("expected experiment output model to use default, got %q", output.Model)
+	}
+	if len(aiSolver.inputs) != 1 || aiSolver.inputs[0].Model != "default-model" {
+		t.Fatalf("expected default model to be passed to solve, got %+v", aiSolver.inputs)
 	}
 }
 

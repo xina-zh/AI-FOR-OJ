@@ -213,6 +213,9 @@ func TestExperimentCompareServiceCompare(t *testing.T) {
 	if len(runner.runInputs) != 2 {
 		t.Fatalf("expected baseline and candidate to run, got %d calls", len(runner.runInputs))
 	}
+	if runner.runInputs[0].Model != "mock-a" || runner.runInputs[1].Model != "mock-b" {
+		t.Fatalf("expected baseline/candidate models to stay independent, got %+v", runner.runInputs)
+	}
 
 	if output.CompareDimension != ExperimentCompareDimensionModel {
 		t.Fatalf("expected compare dimension model, got %s", output.CompareDimension)
@@ -287,6 +290,9 @@ func TestExperimentCompareServiceCompareCandidateFailure(t *testing.T) {
 
 	if repo.updated == nil || repo.updated.Status != model.ExperimentCompareStatusFailed {
 		t.Fatalf("expected failed compare to be persisted, got %+v", repo.updated)
+	}
+	if len(runner.runInputs) != 2 || runner.runInputs[0].Model != "mock-a" || runner.runInputs[1].Model != "mock-b" {
+		t.Fatalf("expected compare to pass distinct models before candidate failure, got %+v", runner.runInputs)
 	}
 }
 

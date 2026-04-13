@@ -130,7 +130,7 @@ func (s *ExperimentRepeatService) Repeat(ctx context.Context, input RepeatExperi
 		experiment, err := s.experiments.Run(ctx, RunExperimentInput{
 			Name:       fmt.Sprintf("%s-round-%d", repeat.Name, round),
 			ProblemIDs: input.ProblemIDs,
-			Model:      input.Model,
+			Model:      repeat.ModelName,
 		})
 		if err != nil {
 			return s.failRepeat(ctx, repeat, experimentIDs, err)

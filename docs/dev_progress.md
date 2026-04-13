@@ -204,3 +204,82 @@
 **最小实验闭环已完成，基础分析能力已具备，适合先收束并提交 GitHub。**
 
 后续再往前推进时，可以基于这一版继续扩展，而不需要推翻现有目录结构和主链设计。
+
+## 2026-04-13 开发补充
+
+### 1. 成本比较主线补齐
+
+今天把 token / latency 的汇总主线从单次 `AISolveRun` 继续向上补齐到了实验层：
+
+- `Experiment` 层增加了 `cost_summary`
+- `Compare` 层增加了 `cost_comparison`
+- `Repeat` 层增加了 `cost_summary`
+
+当前这些汇总主要覆盖：
+
+- token 输入总量
+- token 输出总量
+- total tokens
+- llm latency 总量
+- total latency 总量
+- 对应平均值
+
+其中：
+
+- `Compare` 的成本对比直接复用了 baseline / candidate 两侧 `Experiment` 的 `cost_summary`
+- `Repeat` 的成本汇总直接复用了每一轮 `Experiment` 的 `cost_summary`
+
+这样避免了在 compare / repeat 层重复扫描更底层的统计对象，也保证了口径一致。
+
+### 2. 请求级 model 变量化完成
+
+今天把 model 从“主要依赖全局默认配置”进一步收敛为“请求级 / 实验级可指定”的最小闭环。
+
+当前已打通：
+
+- `POST /api/v1/ai/solve`
+- `POST /api/v1/experiments/run`
+- `POST /api/v1/experiments/compare`
+- `POST /api/v1/experiments/repeat`
+
+当前语义是：
+
+- 请求里传了 `model` 时，优先使用请求值
+- 没传时，才回退到默认配置
+
+另外：
+
+- compare 的 `baseline_model` / `candidate_model` 已能分别独立传到底层
+- repeat 顶层 `model` 已能传到每一轮 `experiment`，再继续传到底层 solve
+
+### 3. 真实模型切换方式已验证
+
+真实模型接入主线仍固定为 `openai_compatible` 中转站方案。
+
+在固定 `provider / base_url / api_key`、不依赖手动重启容器的前提下，已经实际验证可通过请求里的 `model` 直接切换不同模型，包括：
+
+- GPT
+- Gemini
+- Claude
+
+这一步验证的重点不是扩 provider，而是确认后续做模型对比实验时，不再主要依赖手动改全局 `LLM_MODEL`。
+
+### 4. 修复一个历史遗留问题
+
+今天还修复了 `experiments.problem_id` 历史字段仍为 `NOT NULL`，导致多题 batch experiment 创建失败的问题。
+
+当前该字段已允许为空，和现在的多题 `experiment` 语义保持一致。修复后：
+
+- `experiment`
+- `compare`
+- `repeat`
+
+这三条依赖 experiment 创建的实验链路都恢复正常。
+
+### 5. 当前阶段补充结论
+
+经过今天这一轮，当前项目已经从“能比较结果”进一步推进到“能比较结果 + 能比较成本”，并且模型切换已经具备了请求级控制能力，为后续做更自然的模型对比实验打下了基础。
+
+### 6. 下一步建议
+
+下一步更适合优先增强 compare 的实验结论表达能力，而不是继续扩基础成本字段。

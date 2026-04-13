@@ -97,7 +97,7 @@ func (s *AISolveService) Solve(ctx context.Context, input AISolveInput) (*AISolv
 	llmStartedAt := time.Now()
 	llmResp, err := s.llmClient.Generate(ctx, llm.GenerateRequest{
 		Prompt: prompt,
-		Model:  input.Model,
+		Model:  resolvedModel,
 	})
 	run.LLMLatencyMS = elapsedMS(llmStartedAt)
 	if err != nil {
