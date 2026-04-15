@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"ai-for-oj/internal/agent"
 	"ai-for-oj/internal/model"
+	"ai-for-oj/internal/prompt"
 	"ai-for-oj/internal/repository"
 )
 
@@ -113,6 +115,8 @@ func TestExperimentServiceRun(t *testing.T) {
 		Name:       "batch-1",
 		ProblemIDs: []uint{1, 2},
 		Model:      "mock-cpp17",
+		PromptName: prompt.StrictCPP17SolvePromptName,
+		AgentName:  agent.AnalyzeThenCodegenAgentName,
 	})
 	if err != nil {
 		t.Fatalf("run experiment returned error: %v", err)
@@ -143,8 +147,20 @@ func TestExperimentServiceRun(t *testing.T) {
 	if len(output.Runs) != 2 {
 		t.Fatalf("expected 2 runs, got %d", len(output.Runs))
 	}
+	if output.PromptName != prompt.StrictCPP17SolvePromptName {
+		t.Fatalf("expected experiment prompt name in output, got %q", output.PromptName)
+	}
+	if output.AgentName != agent.AnalyzeThenCodegenAgentName {
+		t.Fatalf("expected experiment agent name in output, got %q", output.AgentName)
+	}
 	if len(aiSolver.inputs) != 2 || aiSolver.inputs[0].Model != "mock-cpp17" || aiSolver.inputs[1].Model != "mock-cpp17" {
 		t.Fatalf("expected experiment model to be passed to every solve, got %+v", aiSolver.inputs)
+	}
+	if aiSolver.inputs[0].PromptName != prompt.StrictCPP17SolvePromptName || aiSolver.inputs[1].PromptName != prompt.StrictCPP17SolvePromptName {
+		t.Fatalf("expected experiment prompt name to be passed to every solve, got %+v", aiSolver.inputs)
+	}
+	if aiSolver.inputs[0].AgentName != agent.AnalyzeThenCodegenAgentName || aiSolver.inputs[1].AgentName != agent.AnalyzeThenCodegenAgentName {
+		t.Fatalf("expected experiment agent name to be passed to every solve, got %+v", aiSolver.inputs)
 	}
 
 	if output.Runs[0].AttemptNo != 1 || output.Runs[1].AttemptNo != 2 {
@@ -229,8 +245,20 @@ func TestExperimentServiceRunFallsBackToDefaultModelForEverySolve(t *testing.T) 
 	if output.Model != "default-model" {
 		t.Fatalf("expected experiment output model to use default, got %q", output.Model)
 	}
+	if output.PromptName != prompt.DefaultSolvePromptName {
+		t.Fatalf("expected experiment output prompt name to use default, got %q", output.PromptName)
+	}
+	if output.AgentName != agent.DirectCodegenAgentName {
+		t.Fatalf("expected experiment output agent name to use default, got %q", output.AgentName)
+	}
 	if len(aiSolver.inputs) != 1 || aiSolver.inputs[0].Model != "default-model" {
 		t.Fatalf("expected default model to be passed to solve, got %+v", aiSolver.inputs)
+	}
+	if len(aiSolver.inputs) != 1 || aiSolver.inputs[0].PromptName != prompt.DefaultSolvePromptName {
+		t.Fatalf("expected default prompt to be passed to solve, got %+v", aiSolver.inputs)
+	}
+	if len(aiSolver.inputs) != 1 || aiSolver.inputs[0].AgentName != agent.DirectCodegenAgentName {
+		t.Fatalf("expected default agent to be passed to solve, got %+v", aiSolver.inputs)
 	}
 }
 

@@ -6,7 +6,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"ai-for-oj/internal/agent"
 	"ai-for-oj/internal/handler/dto"
+	"ai-for-oj/internal/prompt"
 	"ai-for-oj/internal/repository"
 	"ai-for-oj/internal/service"
 )
@@ -40,8 +42,18 @@ func (h *ExperimentHandler) Run(c *gin.Context) {
 		Name:       req.Name,
 		ProblemIDs: req.ProblemIDs,
 		Model:      req.Model,
+		PromptName: req.PromptName,
+		AgentName:  req.AgentName,
 	})
 	if err != nil {
+		if errors.Is(err, agent.ErrUnknownSolveAgent) {
+			c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+			return
+		}
+		if errors.Is(err, prompt.ErrUnknownSolvePrompt) {
+			c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -57,12 +69,24 @@ func (h *ExperimentHandler) Compare(c *gin.Context) {
 	}
 
 	output, err := h.compareService.Compare(c.Request.Context(), service.CompareExperimentInput{
-		Name:           req.Name,
-		ProblemIDs:     req.ProblemIDs,
-		BaselineModel:  req.BaselineModel,
-		CandidateModel: req.CandidateModel,
+		Name:                req.Name,
+		ProblemIDs:          req.ProblemIDs,
+		BaselineModel:       req.BaselineModel,
+		CandidateModel:      req.CandidateModel,
+		BaselinePromptName:  req.BaselinePromptName,
+		CandidatePromptName: req.CandidatePromptName,
+		BaselineAgentName:   req.BaselineAgentName,
+		CandidateAgentName:  req.CandidateAgentName,
 	})
 	if err != nil {
+		if errors.Is(err, agent.ErrUnknownSolveAgent) {
+			c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+			return
+		}
+		if errors.Is(err, prompt.ErrUnknownSolvePrompt) {
+			c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -81,9 +105,19 @@ func (h *ExperimentHandler) Repeat(c *gin.Context) {
 		Name:        req.Name,
 		ProblemIDs:  req.ProblemIDs,
 		Model:       req.Model,
+		PromptName:  req.PromptName,
+		AgentName:   req.AgentName,
 		RepeatCount: req.RepeatCount,
 	})
 	if err != nil {
+		if errors.Is(err, agent.ErrUnknownSolveAgent) {
+			c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+			return
+		}
+		if errors.Is(err, prompt.ErrUnknownSolvePrompt) {
+			c.JSON(http.StatusBadRequest, dto.ErrorResponse{Error: err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -171,6 +205,8 @@ func toExperimentResponse(output *service.ExperimentOutput) dto.ExperimentRespon
 		ID:                  output.ID,
 		Name:                output.Name,
 		Model:               output.Model,
+		PromptName:          output.PromptName,
+		AgentName:           output.AgentName,
 		Status:              output.Status,
 		TotalCount:          output.TotalCount,
 		SuccessCount:        output.SuccessCount,
@@ -231,6 +267,10 @@ func toExperimentCompareResponse(output *service.ExperimentCompareOutput) dto.Ex
 		CompareDimension:      output.CompareDimension,
 		BaselineValue:         output.BaselineValue,
 		CandidateValue:        output.CandidateValue,
+		BaselinePromptName:    output.BaselinePromptName,
+		CandidatePromptName:   output.CandidatePromptName,
+		BaselineAgentName:     output.BaselineAgentName,
+		CandidateAgentName:    output.CandidateAgentName,
 		ProblemIDs:            output.ProblemIDs,
 		BaselineExperimentID:  output.BaselineExperimentID,
 		CandidateExperimentID: output.CandidateExperimentID,
@@ -240,6 +280,7 @@ func toExperimentCompareResponse(output *service.ExperimentCompareOutput) dto.Ex
 		CandidateDistribution: output.CandidateDistribution,
 		DeltaDistribution:     output.DeltaDistribution,
 		CostComparison:        output.CostComparison,
+		ComparisonSummary:     output.ComparisonSummary,
 		ImprovedCount:         output.ImprovedCount,
 		RegressedCount:        output.RegressedCount,
 		ChangedNonACCount:     output.ChangedNonACCount,
@@ -299,6 +340,8 @@ func toExperimentRepeatResponse(output *service.ExperimentRepeatOutput) dto.Expe
 		ID:                         output.ID,
 		Name:                       output.Name,
 		Model:                      output.Model,
+		PromptName:                 output.PromptName,
+		AgentName:                  output.AgentName,
 		ProblemIDs:                 output.ProblemIDs,
 		RepeatCount:                output.RepeatCount,
 		ExperimentIDs:              output.ExperimentIDs,

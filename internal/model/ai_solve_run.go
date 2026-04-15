@@ -11,6 +11,8 @@ type AISolveRun struct {
 
 	ProblemID      uint   `gorm:"column:problem_id;not null;index" json:"problem_id"`
 	Model          string `gorm:"column:model;type:varchar(128);not null;default:'';index" json:"model"`
+	PromptName     string `gorm:"column:prompt_name;type:varchar(64);not null;default:'';index" json:"prompt_name"`
+	AgentName      string `gorm:"column:agent_name;type:varchar(64);not null;default:'';index" json:"agent_name"`
 	PromptPreview  string `gorm:"column:prompt_preview;type:text" json:"prompt_preview"`
 	RawResponse    string `gorm:"column:raw_response;type:longtext" json:"raw_response"`
 	ExtractedCode  string `gorm:"column:extracted_code;type:longtext" json:"extracted_code"`

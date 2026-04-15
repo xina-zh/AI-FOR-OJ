@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"ai-for-oj/internal/config"
 )
@@ -271,6 +272,151 @@ func TestOpenAICompatibleClientReturnsClearReadError(t *testing.T) {
 	}
 	if got := err.Error(); !containsAll(got, "read llm response", server.URL, "status=200", "request_body=") {
 		t.Fatalf("expected clearer error context, got %q", got)
+	}
+}
+
+func TestOpenAICompatibleClientReturnsClearNonJSONStatusError(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		http.Error(w, "upstream gateway error", http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(config.LLMConfig{
+		Provider: ProviderOpenAICompatible,
+		BaseURL:  server.URL,
+		APIKey:   "test-key",
+		Model:    "gpt-test",
+		Timeout:  5 * time.Second,
+	}, nil)
+	if err != nil {
+		t.Fatalf("new openai compatible client returned error: %v", err)
+	}
+
+	_, err = client.Generate(context.Background(), GenerateRequest{
+		Prompt: "solve echo",
+	})
+	if err == nil {
+		t.Fatal("expected status error")
+	}
+	if atomic.LoadInt32(&attempts) != 5 {
+		t.Fatalf("expected 5 attempts for retryable 502, got %d", attempts)
+	}
+	if got := err.Error(); !containsAll(got, "llm request failed", "status=502", "upstream gateway error") {
+		t.Fatalf("expected clearer non-json status error, got %q", got)
+	}
+}
+
+func TestOpenAICompatibleClientRetriesTimeoutOnce(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		current := atomic.AddInt32(&attempts, 1)
+		if current == 1 {
+			time.Sleep(120 * time.Millisecond)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model": "gpt-test",
+			"choices": []map[string]any{
+				{
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": "```cpp\nint main(){return 0;}\n```",
+					},
+				},
+			},
+			"usage": map[string]any{
+				"prompt_tokens":     8,
+				"completion_tokens": 4,
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(config.LLMConfig{
+		Provider: ProviderOpenAICompatible,
+		BaseURL:  server.URL,
+		APIKey:   "test-key",
+		Model:    "gpt-test",
+		Timeout:  50 * time.Millisecond,
+	}, nil)
+	if err != nil {
+		t.Fatalf("new openai compatible client returned error: %v", err)
+	}
+
+	resp, err := client.Generate(context.Background(), GenerateRequest{
+		Prompt: "solve echo",
+	})
+	if err != nil {
+		t.Fatalf("generate should succeed after timeout retry, got error: %v", err)
+	}
+	if atomic.LoadInt32(&attempts) != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+	if resp.Model != "gpt-test" || resp.InputTokens != 8 || resp.OutputTokens != 4 {
+		t.Fatalf("unexpected retried timeout response: %+v", resp)
+	}
+}
+
+func TestOpenAICompatibleClientRetriesEmptyBody(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		current := atomic.AddInt32(&attempts, 1)
+		if current < 3 {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model": "gpt-test",
+			"choices": []map[string]any{
+				{
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": "```cpp\nint main(){return 0;}\n```",
+					},
+				},
+			},
+			"usage": map[string]any{
+				"prompt_tokens":     9,
+				"completion_tokens": 6,
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(config.LLMConfig{
+		Provider: ProviderOpenAICompatible,
+		BaseURL:  server.URL,
+		APIKey:   "test-key",
+		Model:    "gpt-test",
+		Timeout:  5 * time.Second,
+	}, nil)
+	if err != nil {
+		t.Fatalf("new openai compatible client returned error: %v", err)
+	}
+
+	resp, err := client.Generate(context.Background(), GenerateRequest{
+		Prompt: "solve echo",
+	})
+	if err != nil {
+		t.Fatalf("generate should succeed after empty-body retries, got error: %v", err)
+	}
+	if atomic.LoadInt32(&attempts) != 3 {
+		t.Fatalf("expected 3 attempts, got %d", attempts)
+	}
+	if resp.Model != "gpt-test" || resp.InputTokens != 9 || resp.OutputTokens != 6 {
+		t.Fatalf("unexpected retried empty-body response: %+v", resp)
+	}
+}
+
+func TestTruncateErrorBodyKeepsUTF8Valid(t *testing.T) {
+	value := "中文错误响应内容abc"
+	got := truncateErrorBody(value, 4)
+	if !utf8.ValidString(got) {
+		t.Fatalf("expected utf8-valid truncated body, got %q", got)
+	}
+	if got != "中文错误...(truncated)" {
+		t.Fatalf("unexpected truncated body: %q", got)
 	}
 }
 

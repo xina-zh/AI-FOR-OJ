@@ -13,6 +13,10 @@ type ExperimentCompare struct {
 	CompareDimension      string `gorm:"column:compare_dimension;type:varchar(32);not null;index" json:"compare_dimension"`
 	BaselineValue         string `gorm:"column:baseline_value;type:varchar(128);not null;default:''" json:"baseline_value"`
 	CandidateValue        string `gorm:"column:candidate_value;type:varchar(128);not null;default:''" json:"candidate_value"`
+	BaselinePromptName    string `gorm:"column:baseline_prompt_name;type:varchar(64);not null;default:''" json:"baseline_prompt_name"`
+	CandidatePromptName   string `gorm:"column:candidate_prompt_name;type:varchar(64);not null;default:''" json:"candidate_prompt_name"`
+	BaselineAgentName     string `gorm:"column:baseline_agent_name;type:varchar(64);not null;default:''" json:"baseline_agent_name"`
+	CandidateAgentName    string `gorm:"column:candidate_agent_name;type:varchar(64);not null;default:''" json:"candidate_agent_name"`
 	ProblemIDs            string `gorm:"column:problem_ids;type:longtext;not null" json:"problem_ids"`
 	BaselineExperimentID  *uint  `gorm:"column:baseline_experiment_id;index" json:"baseline_experiment_id,omitempty"`
 	CandidateExperimentID *uint  `gorm:"column:candidate_experiment_id;index" json:"candidate_experiment_id,omitempty"`

@@ -7,11 +7,17 @@ import (
 	"sort"
 	"time"
 
+	"ai-for-oj/internal/agent"
 	"ai-for-oj/internal/model"
+	"ai-for-oj/internal/prompt"
 	"ai-for-oj/internal/repository"
 )
 
-const ExperimentCompareDimensionModel = "model"
+const (
+	ExperimentCompareDimensionModel  = "model"
+	ExperimentCompareDimensionPrompt = "prompt"
+	ExperimentCompareDimensionAgent  = "agent"
+)
 
 type ExperimentRunner interface {
 	Run(ctx context.Context, input RunExperimentInput) (*ExperimentOutput, error)
@@ -19,10 +25,14 @@ type ExperimentRunner interface {
 }
 
 type CompareExperimentInput struct {
-	Name           string
-	ProblemIDs     []uint
-	BaselineModel  string
-	CandidateModel string
+	Name                string
+	ProblemIDs          []uint
+	BaselineModel       string
+	CandidateModel      string
+	BaselinePromptName  string
+	CandidatePromptName string
+	BaselineAgentName   string
+	CandidateAgentName  string
 }
 
 type ExperimentCompareProblemSummary struct {
@@ -76,12 +86,29 @@ type ExperimentCompareCostComparison struct {
 	DeltaAverageTotalLatencyMS     float64 `json:"delta_average_total_latency_ms"`
 }
 
+type ExperimentCompareSummary struct {
+	CandidateBetterAC      bool   `json:"candidate_better_ac"`
+	CandidateWorseAC       bool   `json:"candidate_worse_ac"`
+	CandidateSameAC        bool   `json:"candidate_same_ac"`
+	CandidateMoreExpensive bool   `json:"candidate_more_expensive"`
+	CandidateCheaper       bool   `json:"candidate_cheaper"`
+	CandidateSameCost      bool   `json:"candidate_same_cost"`
+	CandidateSlower        bool   `json:"candidate_slower"`
+	CandidateFaster        bool   `json:"candidate_faster"`
+	CandidateSameLatency   bool   `json:"candidate_same_latency"`
+	TradeoffType           string `json:"tradeoff_type"`
+}
+
 type ExperimentCompareOutput struct {
 	ID                    uint                                  `json:"id"`
 	Name                  string                                `json:"name"`
 	CompareDimension      string                                `json:"compare_dimension"`
 	BaselineValue         string                                `json:"baseline_value"`
 	CandidateValue        string                                `json:"candidate_value"`
+	BaselinePromptName    string                                `json:"baseline_prompt_name"`
+	CandidatePromptName   string                                `json:"candidate_prompt_name"`
+	BaselineAgentName     string                                `json:"baseline_agent_name"`
+	CandidateAgentName    string                                `json:"candidate_agent_name"`
 	ProblemIDs            []uint                                `json:"problem_ids"`
 	BaselineExperimentID  uint                                  `json:"baseline_experiment_id"`
 	CandidateExperimentID uint                                  `json:"candidate_experiment_id"`
@@ -91,6 +118,7 @@ type ExperimentCompareOutput struct {
 	CandidateDistribution VerdictDistribution                   `json:"candidate_verdict_distribution"`
 	DeltaDistribution     VerdictDistribution                   `json:"delta_verdict_distribution"`
 	CostComparison        ExperimentCompareCostComparison       `json:"cost_comparison"`
+	ComparisonSummary     ExperimentCompareSummary              `json:"comparison_summary"`
 	ImprovedCount         int                                   `json:"improved_count"`
 	RegressedCount        int                                   `json:"regressed_count"`
 	ChangedNonACCount     int                                   `json:"changed_non_ac_count"`
@@ -130,14 +158,42 @@ func (s *ExperimentCompareService) Compare(ctx context.Context, input CompareExp
 
 	baselineModel := firstNonEmpty(input.BaselineModel, s.defaultModel)
 	candidateModel := firstNonEmpty(input.CandidateModel, s.defaultModel)
+	baselinePromptName, err := prompt.ResolveSolvePromptName(input.BaselinePromptName)
+	if err != nil {
+		return nil, err
+	}
+	candidatePromptName, err := prompt.ResolveSolvePromptName(input.CandidatePromptName)
+	if err != nil {
+		return nil, err
+	}
+	baselineAgentName, err := agent.ResolveSolveAgentName(input.BaselineAgentName)
+	if err != nil {
+		return nil, err
+	}
+	candidateAgentName, err := agent.ResolveSolveAgentName(input.CandidateAgentName)
+	if err != nil {
+		return nil, err
+	}
+	compareDimension, baselineValue, candidateValue := resolveCompareDimensionAndValues(
+		baselineModel,
+		candidateModel,
+		baselinePromptName,
+		candidatePromptName,
+		baselineAgentName,
+		candidateAgentName,
+	)
 
 	compare := &model.ExperimentCompare{
-		Name:             defaultCompareName(input.Name),
-		CompareDimension: ExperimentCompareDimensionModel,
-		BaselineValue:    baselineModel,
-		CandidateValue:   candidateModel,
-		ProblemIDs:       string(problemIDsJSON),
-		Status:           model.ExperimentCompareStatusRunning,
+		Name:                defaultCompareName(input.Name),
+		CompareDimension:    compareDimension,
+		BaselineValue:       baselineValue,
+		CandidateValue:      candidateValue,
+		BaselinePromptName:  baselinePromptName,
+		CandidatePromptName: candidatePromptName,
+		BaselineAgentName:   baselineAgentName,
+		CandidateAgentName:  candidateAgentName,
+		ProblemIDs:          string(problemIDsJSON),
+		Status:              model.ExperimentCompareStatusRunning,
 	}
 	if err := s.compares.Create(ctx, compare); err != nil {
 		return nil, fmt.Errorf("create experiment compare: %w", err)
@@ -147,6 +203,8 @@ func (s *ExperimentCompareService) Compare(ctx context.Context, input CompareExp
 		Name:       compare.Name + "-baseline",
 		ProblemIDs: input.ProblemIDs,
 		Model:      baselineModel,
+		PromptName: baselinePromptName,
+		AgentName:  baselineAgentName,
 	})
 	if err != nil {
 		return s.failCompare(ctx, compare, err)
@@ -157,6 +215,8 @@ func (s *ExperimentCompareService) Compare(ctx context.Context, input CompareExp
 		Name:       compare.Name + "-candidate",
 		ProblemIDs: input.ProblemIDs,
 		Model:      candidateModel,
+		PromptName: candidatePromptName,
+		AgentName:  candidateAgentName,
 	})
 	if err != nil {
 		return s.failCompare(ctx, compare, err)
@@ -173,6 +233,7 @@ func (s *ExperimentCompareService) Compare(ctx context.Context, input CompareExp
 	problemSummaries := buildCompareProblemSummaries(input.ProblemIDs, baseline, candidate)
 	improvedCount, regressedCount, changedNonACCount := summarizeCompareProblemChanges(problemSummaries)
 	highlightedProblems := buildHighlightedCompareProblems(problemSummaries)
+	costComparison := buildExperimentCompareCostComparison(baseline, candidate)
 
 	return &ExperimentCompareOutput{
 		ID:                    compare.ID,
@@ -180,6 +241,10 @@ func (s *ExperimentCompareService) Compare(ctx context.Context, input CompareExp
 		CompareDimension:      compare.CompareDimension,
 		BaselineValue:         compare.BaselineValue,
 		CandidateValue:        compare.CandidateValue,
+		BaselinePromptName:    prompt.DisplaySolvePromptName(compare.BaselinePromptName),
+		CandidatePromptName:   prompt.DisplaySolvePromptName(compare.CandidatePromptName),
+		BaselineAgentName:     agent.DisplaySolveAgentName(compare.BaselineAgentName),
+		CandidateAgentName:    agent.DisplaySolveAgentName(compare.CandidateAgentName),
 		ProblemIDs:            append([]uint(nil), input.ProblemIDs...),
 		BaselineExperimentID:  baseline.ID,
 		CandidateExperimentID: candidate.ID,
@@ -188,7 +253,8 @@ func (s *ExperimentCompareService) Compare(ctx context.Context, input CompareExp
 		BaselineDistribution:  baseline.VerdictDistribution,
 		CandidateDistribution: candidate.VerdictDistribution,
 		DeltaDistribution:     DiffVerdictDistribution(candidate.VerdictDistribution, baseline.VerdictDistribution),
-		CostComparison:        buildExperimentCompareCostComparison(baseline, candidate),
+		CostComparison:        costComparison,
+		ComparisonSummary:     buildExperimentCompareSummary(baseline, candidate, costComparison),
 		ImprovedCount:         improvedCount,
 		RegressedCount:        regressedCount,
 		ChangedNonACCount:     changedNonACCount,
@@ -233,6 +299,7 @@ func (s *ExperimentCompareService) Get(ctx context.Context, compareID uint) (*Ex
 	problemSummaries := buildCompareProblemSummaries(problemIDs, baseline, candidate)
 	improvedCount, regressedCount, changedNonACCount := summarizeCompareProblemChanges(problemSummaries)
 	highlightedProblems := buildHighlightedCompareProblems(problemSummaries)
+	costComparison := buildExperimentCompareCostComparison(baseline, candidate)
 
 	return &ExperimentCompareOutput{
 		ID:                    compare.ID,
@@ -240,6 +307,10 @@ func (s *ExperimentCompareService) Get(ctx context.Context, compareID uint) (*Ex
 		CompareDimension:      compare.CompareDimension,
 		BaselineValue:         compare.BaselineValue,
 		CandidateValue:        compare.CandidateValue,
+		BaselinePromptName:    prompt.DisplaySolvePromptName(compare.BaselinePromptName),
+		CandidatePromptName:   prompt.DisplaySolvePromptName(compare.CandidatePromptName),
+		BaselineAgentName:     agent.DisplaySolveAgentName(compare.BaselineAgentName),
+		CandidateAgentName:    agent.DisplaySolveAgentName(compare.CandidateAgentName),
 		ProblemIDs:            problemIDs,
 		BaselineExperimentID:  derefUint(compare.BaselineExperimentID),
 		CandidateExperimentID: derefUint(compare.CandidateExperimentID),
@@ -248,7 +319,8 @@ func (s *ExperimentCompareService) Get(ctx context.Context, compareID uint) (*Ex
 		BaselineDistribution:  verdictDistributionOf(baseline),
 		CandidateDistribution: verdictDistributionOf(candidate),
 		DeltaDistribution:     DiffVerdictDistribution(verdictDistributionOf(candidate), verdictDistributionOf(baseline)),
-		CostComparison:        buildExperimentCompareCostComparison(baseline, candidate),
+		CostComparison:        costComparison,
+		ComparisonSummary:     buildExperimentCompareSummary(baseline, candidate, costComparison),
 		ImprovedCount:         improvedCount,
 		RegressedCount:        regressedCount,
 		ChangedNonACCount:     changedNonACCount,
@@ -275,6 +347,18 @@ func costSummaryOf(output *ExperimentOutput) ExperimentCostSummary {
 		return ExperimentCostSummary{}
 	}
 	return output.CostSummary
+}
+
+func resolveCompareDimensionAndValues(
+	baselineModel, candidateModel, baselinePromptName, candidatePromptName, baselineAgentName, candidateAgentName string,
+) (dimension, baselineValue, candidateValue string) {
+	if baselineModel == candidateModel && baselinePromptName != candidatePromptName {
+		return ExperimentCompareDimensionPrompt, baselinePromptName, candidatePromptName
+	}
+	if baselineModel == candidateModel && baselinePromptName == candidatePromptName && baselineAgentName != candidateAgentName {
+		return ExperimentCompareDimensionAgent, baselineAgentName, candidateAgentName
+	}
+	return ExperimentCompareDimensionModel, baselineModel, candidateModel
 }
 
 func buildExperimentCompareCostComparison(baseline, candidate *ExperimentOutput) ExperimentCompareCostComparison {
@@ -308,6 +392,91 @@ func buildExperimentCompareCostComparison(baseline, candidate *ExperimentOutput)
 		DeltaAverageTotalTokens:        candidateCost.AverageTotalTokens - baselineCost.AverageTotalTokens,
 		DeltaTotalLatencyMS:            candidateCost.TotalLatencyMS - baselineCost.TotalLatencyMS,
 		DeltaAverageTotalLatencyMS:     candidateCost.AverageTotalLatencyMS - baselineCost.AverageTotalLatencyMS,
+	}
+}
+
+func buildExperimentCompareSummary(
+	baseline, candidate *ExperimentOutput,
+	costComparison ExperimentCompareCostComparison,
+) ExperimentCompareSummary {
+	baselineAC := acCountOf(baseline)
+	candidateAC := acCountOf(candidate)
+	acCmp := compareInt(candidateAC, baselineAC)
+	costCmp := compareInt64(costComparison.CandidateTotalTokens, costComparison.BaselineTotalTokens)
+	latencyCmp := compareFloat64(costComparison.CandidateAverageTotalLatencyMS, costComparison.BaselineAverageTotalLatencyMS)
+
+	return ExperimentCompareSummary{
+		CandidateBetterAC:      acCmp > 0,
+		CandidateWorseAC:       acCmp < 0,
+		CandidateSameAC:        acCmp == 0,
+		CandidateMoreExpensive: costCmp > 0,
+		CandidateCheaper:       costCmp < 0,
+		CandidateSameCost:      costCmp == 0,
+		CandidateSlower:        latencyCmp > 0,
+		CandidateFaster:        latencyCmp < 0,
+		CandidateSameLatency:   latencyCmp == 0,
+		TradeoffType:           compareTradeoffType(acCmp, costCmp),
+	}
+}
+
+func acCountOf(output *ExperimentOutput) int {
+	if output == nil {
+		return 0
+	}
+	return output.ACCount
+}
+
+func compareTradeoffType(acCmp, costCmp int) string {
+	switch {
+	case acCmp > 0 && costCmp > 0:
+		return "improved_with_higher_cost"
+	case acCmp > 0 && costCmp < 0:
+		return "improved_with_lower_cost"
+	case acCmp == 0 && costCmp > 0:
+		return "same_outcome_higher_cost"
+	case acCmp == 0 && costCmp < 0:
+		return "same_outcome_lower_cost"
+	case acCmp == 0 && costCmp == 0:
+		return "same_outcome_same_cost"
+	case acCmp < 0 && costCmp > 0:
+		return "regressed_with_higher_cost"
+	case acCmp < 0 && costCmp < 0:
+		return "regressed_with_lower_cost"
+	default:
+		return "mixed"
+	}
+}
+
+func compareInt(left, right int) int {
+	switch {
+	case left > right:
+		return 1
+	case left < right:
+		return -1
+	default:
+		return 0
+	}
+}
+
+func compareInt64(left, right int64) int {
+	switch {
+	case left > right:
+		return 1
+	case left < right:
+		return -1
+	default:
+		return 0
+	}
+}
+
+func compareFloat64(left, right float64) int {
+	switch {
+	case left > right:
+		return 1
+	case left < right:
+		return -1
+	default:
+		return 0
 	}
 }
 

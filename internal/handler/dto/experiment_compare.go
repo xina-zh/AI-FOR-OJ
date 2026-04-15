@@ -7,10 +7,14 @@ import (
 )
 
 type CompareExperimentRequest struct {
-	Name           string `json:"name"`
-	ProblemIDs     []uint `json:"problem_ids" binding:"required,min=1"`
-	BaselineModel  string `json:"baseline_model"`
-	CandidateModel string `json:"candidate_model"`
+	Name                string `json:"name"`
+	ProblemIDs          []uint `json:"problem_ids" binding:"required,min=1"`
+	BaselineModel       string `json:"baseline_model"`
+	CandidateModel      string `json:"candidate_model"`
+	BaselinePromptName  string `json:"baseline_prompt_name"`
+	CandidatePromptName string `json:"candidate_prompt_name"`
+	BaselineAgentName   string `json:"baseline_agent_name"`
+	CandidateAgentName  string `json:"candidate_agent_name"`
 }
 
 type ExperimentCompareProblemSummaryResponse struct {
@@ -41,6 +45,10 @@ type ExperimentCompareResponse struct {
 	CompareDimension      string                                        `json:"compare_dimension"`
 	BaselineValue         string                                        `json:"baseline_value"`
 	CandidateValue        string                                        `json:"candidate_value"`
+	BaselinePromptName    string                                        `json:"baseline_prompt_name"`
+	CandidatePromptName   string                                        `json:"candidate_prompt_name"`
+	BaselineAgentName     string                                        `json:"baseline_agent_name"`
+	CandidateAgentName    string                                        `json:"candidate_agent_name"`
 	ProblemIDs            []uint                                        `json:"problem_ids"`
 	BaselineExperimentID  uint                                          `json:"baseline_experiment_id"`
 	CandidateExperimentID uint                                          `json:"candidate_experiment_id"`
@@ -50,6 +58,7 @@ type ExperimentCompareResponse struct {
 	CandidateDistribution service.VerdictDistribution                   `json:"candidate_verdict_distribution"`
 	DeltaDistribution     service.VerdictDistribution                   `json:"delta_verdict_distribution"`
 	CostComparison        service.ExperimentCompareCostComparison       `json:"cost_comparison"`
+	ComparisonSummary     service.ExperimentCompareSummary              `json:"comparison_summary"`
 	ImprovedCount         int                                           `json:"improved_count"`
 	RegressedCount        int                                           `json:"regressed_count"`
 	ChangedNonACCount     int                                           `json:"changed_non_ac_count"`

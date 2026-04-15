@@ -7,7 +7,9 @@ import (
 	"sort"
 	"time"
 
+	"ai-for-oj/internal/agent"
 	"ai-for-oj/internal/model"
+	"ai-for-oj/internal/prompt"
 	"ai-for-oj/internal/repository"
 )
 
@@ -15,6 +17,8 @@ type RepeatExperimentInput struct {
 	Name        string
 	ProblemIDs  []uint
 	Model       string
+	PromptName  string
+	AgentName   string
 	RepeatCount int
 }
 
@@ -67,6 +71,8 @@ type ExperimentRepeatOutput struct {
 	ID                         uint                              `json:"id"`
 	Name                       string                            `json:"name"`
 	Model                      string                            `json:"model"`
+	PromptName                 string                            `json:"prompt_name"`
+	AgentName                  string                            `json:"agent_name"`
 	ProblemIDs                 []uint                            `json:"problem_ids"`
 	RepeatCount                int                               `json:"repeat_count"`
 	ExperimentIDs              []uint                            `json:"experiment_ids"`
@@ -112,10 +118,20 @@ func (s *ExperimentRepeatService) Repeat(ctx context.Context, input RepeatExperi
 	if err != nil {
 		return nil, fmt.Errorf("marshal problem ids: %w", err)
 	}
+	resolvedPromptName, err := prompt.ResolveSolvePromptName(input.PromptName)
+	if err != nil {
+		return nil, err
+	}
+	resolvedAgentName, err := agent.ResolveSolveAgentName(input.AgentName)
+	if err != nil {
+		return nil, err
+	}
 
 	repeat := &model.ExperimentRepeat{
 		Name:        defaultRepeatName(input.Name),
 		ModelName:   firstNonEmpty(input.Model, s.defaultModel),
+		PromptName:  resolvedPromptName,
+		AgentName:   resolvedAgentName,
 		ProblemIDs:  string(problemIDsJSON),
 		RepeatCount: input.RepeatCount,
 		Status:      model.ExperimentRepeatStatusRunning,
@@ -131,6 +147,8 @@ func (s *ExperimentRepeatService) Repeat(ctx context.Context, input RepeatExperi
 			Name:       fmt.Sprintf("%s-round-%d", repeat.Name, round),
 			ProblemIDs: input.ProblemIDs,
 			Model:      repeat.ModelName,
+			PromptName: repeat.PromptName,
+			AgentName:  repeat.AgentName,
 		})
 		if err != nil {
 			return s.failRepeat(ctx, repeat, experimentIDs, err)
@@ -189,6 +207,8 @@ func buildExperimentRepeatOutput(
 		ID:                   repeat.ID,
 		Name:                 repeat.Name,
 		Model:                repeat.ModelName,
+		PromptName:           prompt.DisplaySolvePromptName(repeat.PromptName),
+		AgentName:            agent.DisplaySolveAgentName(repeat.AgentName),
 		ProblemIDs:           append([]uint(nil), problemIDs...),
 		RepeatCount:          repeat.RepeatCount,
 		ExperimentIDs:        append([]uint(nil), experimentIDs...),

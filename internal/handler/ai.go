@@ -6,7 +6,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"ai-for-oj/internal/agent"
 	"ai-for-oj/internal/handler/dto"
+	"ai-for-oj/internal/prompt"
 	"ai-for-oj/internal/repository"
 	"ai-for-oj/internal/service"
 )
@@ -27,42 +29,38 @@ func (h *AIHandler) Solve(c *gin.Context) {
 	}
 
 	output, err := h.service.Solve(c.Request.Context(), service.AISolveInput{
-		ProblemID: req.ProblemID,
-		Model:     req.Model,
+		ProblemID:  req.ProblemID,
+		Model:      req.Model,
+		PromptName: req.PromptName,
+		AgentName:  req.AgentName,
 	})
 	if err != nil {
+		errorResp := dto.AISolveErrorResponse{Error: err.Error()}
 		runID := uint(0)
 		if output != nil {
 			runID = output.AISolveRunID
+			errorResp.AISolveRunID = runID
+			errorResp.PromptName = output.PromptName
+			errorResp.AgentName = output.AgentName
+			errorResp.TokenInput = output.TokenInput
+			errorResp.TokenOutput = output.TokenOutput
+			errorResp.LLMLatencyMS = output.LLMLatencyMS
+			errorResp.TotalLatencyMS = output.TotalLatencyMS
 		}
 		switch {
+		case errors.Is(err, agent.ErrUnknownSolveAgent):
+			c.JSON(http.StatusBadRequest, errorResp)
+		case errors.Is(err, prompt.ErrUnknownSolvePrompt):
+			c.JSON(http.StatusBadRequest, errorResp)
 		case errors.Is(err, repository.ErrProblemNotFound):
-			c.JSON(http.StatusNotFound, dto.AISolveErrorResponse{
-				Error:          err.Error(),
-				AISolveRunID:   runID,
-				TokenInput:     output.TokenInput,
-				TokenOutput:    output.TokenOutput,
-				LLMLatencyMS:   output.LLMLatencyMS,
-				TotalLatencyMS: output.TotalLatencyMS,
-			})
+			errorResp.AISolveRunID = runID
+			c.JSON(http.StatusNotFound, errorResp)
 		case errors.Is(err, service.ErrAISolveLLMFailed), errors.Is(err, service.ErrAISolveCodeNotExtracted):
-			c.JSON(http.StatusBadGateway, dto.AISolveErrorResponse{
-				Error:          err.Error(),
-				AISolveRunID:   runID,
-				TokenInput:     output.TokenInput,
-				TokenOutput:    output.TokenOutput,
-				LLMLatencyMS:   output.LLMLatencyMS,
-				TotalLatencyMS: output.TotalLatencyMS,
-			})
+			errorResp.AISolveRunID = runID
+			c.JSON(http.StatusBadGateway, errorResp)
 		default:
-			c.JSON(http.StatusInternalServerError, dto.AISolveErrorResponse{
-				Error:          err.Error(),
-				AISolveRunID:   runID,
-				TokenInput:     output.TokenInput,
-				TokenOutput:    output.TokenOutput,
-				LLMLatencyMS:   output.LLMLatencyMS,
-				TotalLatencyMS: output.TotalLatencyMS,
-			})
+			errorResp.AISolveRunID = runID
+			c.JSON(http.StatusInternalServerError, errorResp)
 		}
 		return
 	}
@@ -71,6 +69,8 @@ func (h *AIHandler) Solve(c *gin.Context) {
 		AISolveRunID:   output.AISolveRunID,
 		ProblemID:      output.ProblemID,
 		Model:          output.Model,
+		PromptName:     output.PromptName,
+		AgentName:      output.AgentName,
 		PromptPreview:  output.PromptPreview,
 		RawResponse:    output.RawResponse,
 		ExtractedCode:  output.ExtractedCode,
@@ -105,6 +105,8 @@ func (h *AIHandler) GetRun(c *gin.Context) {
 		ID:             run.ID,
 		ProblemID:      run.ProblemID,
 		Model:          run.Model,
+		PromptName:     prompt.DisplaySolvePromptName(run.PromptName),
+		AgentName:      agent.DisplaySolveAgentName(run.AgentName),
 		PromptPreview:  run.PromptPreview,
 		RawResponse:    run.RawResponse,
 		ExtractedCode:  run.ExtractedCode,

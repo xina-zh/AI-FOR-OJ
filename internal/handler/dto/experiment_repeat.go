@@ -10,6 +10,8 @@ type RepeatExperimentRequest struct {
 	Name        string `json:"name"`
 	ProblemIDs  []uint `json:"problem_ids" binding:"required,min=1"`
 	Model       string `json:"model"`
+	PromptName  string `json:"prompt_name"`
+	AgentName   string `json:"agent_name"`
 	RepeatCount int    `json:"repeat_count" binding:"required,gte=1,lte=10"`
 }
 
@@ -48,6 +50,8 @@ type ExperimentRepeatResponse struct {
 	ID                         uint                                      `json:"id"`
 	Name                       string                                    `json:"name"`
 	Model                      string                                    `json:"model"`
+	PromptName                 string                                    `json:"prompt_name"`
+	AgentName                  string                                    `json:"agent_name"`
 	ProblemIDs                 []uint                                    `json:"problem_ids"`
 	RepeatCount                int                                       `json:"repeat_count"`
 	ExperimentIDs              []uint                                    `json:"experiment_ids"`

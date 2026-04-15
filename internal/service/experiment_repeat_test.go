@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"ai-for-oj/internal/agent"
 	"ai-for-oj/internal/model"
+	"ai-for-oj/internal/prompt"
 	"ai-for-oj/internal/repository"
 )
 
@@ -62,6 +64,8 @@ func TestExperimentRepeatServiceRepeat(t *testing.T) {
 				ID:                  10,
 				Name:                "round-1",
 				Model:               "mock-cpp17",
+				PromptName:          prompt.CPP17MinimalSolvePromptName,
+				AgentName:           agent.AnalyzeThenCodegenAgentName,
 				TotalCount:          2,
 				SuccessCount:        2,
 				ACCount:             1,
@@ -85,6 +89,8 @@ func TestExperimentRepeatServiceRepeat(t *testing.T) {
 				ID:                  11,
 				Name:                "round-2",
 				Model:               "mock-cpp17",
+				PromptName:          prompt.CPP17MinimalSolvePromptName,
+				AgentName:           agent.AnalyzeThenCodegenAgentName,
 				TotalCount:          2,
 				SuccessCount:        2,
 				ACCount:             2,
@@ -108,6 +114,8 @@ func TestExperimentRepeatServiceRepeat(t *testing.T) {
 				ID:                  12,
 				Name:                "round-3",
 				Model:               "mock-cpp17",
+				PromptName:          prompt.CPP17MinimalSolvePromptName,
+				AgentName:           agent.AnalyzeThenCodegenAgentName,
 				TotalCount:          2,
 				SuccessCount:        1,
 				ACCount:             0,
@@ -128,6 +136,8 @@ func TestExperimentRepeatServiceRepeat(t *testing.T) {
 		Name:        "repeat-1",
 		ProblemIDs:  []uint{1, 2},
 		Model:       "mock-cpp17",
+		PromptName:  prompt.CPP17MinimalSolvePromptName,
+		AgentName:   agent.AnalyzeThenCodegenAgentName,
 		RepeatCount: 3,
 	})
 	if err != nil {
@@ -141,6 +151,18 @@ func TestExperimentRepeatServiceRepeat(t *testing.T) {
 		if input.Model != "mock-cpp17" {
 			t.Fatalf("expected repeat model to be passed to every round, got %+v", runner.runInputs)
 		}
+		if input.PromptName != prompt.CPP17MinimalSolvePromptName {
+			t.Fatalf("expected repeat prompt to be passed to every round, got %+v", runner.runInputs)
+		}
+		if input.AgentName != agent.AnalyzeThenCodegenAgentName {
+			t.Fatalf("expected repeat agent to be passed to every round, got %+v", runner.runInputs)
+		}
+	}
+	if output.PromptName != prompt.CPP17MinimalSolvePromptName {
+		t.Fatalf("expected repeat prompt name in output, got %q", output.PromptName)
+	}
+	if output.AgentName != agent.AnalyzeThenCodegenAgentName {
+		t.Fatalf("expected repeat agent name in output, got %q", output.AgentName)
 	}
 	if output.TotalProblemCount != 2 || output.TotalRunCount != 6 {
 		t.Fatalf("unexpected total counts: %+v", output)
@@ -216,6 +238,8 @@ func TestExperimentRepeatServiceRepeatMarksFailedOnRoundError(t *testing.T) {
 		Name:        "repeat-2",
 		ProblemIDs:  []uint{1},
 		Model:       "mock-cpp17",
+		PromptName:  prompt.StrictCPP17SolvePromptName,
+		AgentName:   agent.AnalyzeThenCodegenAgentName,
 		RepeatCount: 2,
 	})
 	if err == nil {
@@ -227,6 +251,12 @@ func TestExperimentRepeatServiceRepeatMarksFailedOnRoundError(t *testing.T) {
 	if len(runner.runInputs) != 2 || runner.runInputs[0].Model != "mock-cpp17" || runner.runInputs[1].Model != "mock-cpp17" {
 		t.Fatalf("expected repeat to preserve model across rounds before failure, got %+v", runner.runInputs)
 	}
+	if runner.runInputs[0].PromptName != prompt.StrictCPP17SolvePromptName || runner.runInputs[1].PromptName != prompt.StrictCPP17SolvePromptName {
+		t.Fatalf("expected repeat to preserve prompt across rounds before failure, got %+v", runner.runInputs)
+	}
+	if runner.runInputs[0].AgentName != agent.AnalyzeThenCodegenAgentName || runner.runInputs[1].AgentName != agent.AnalyzeThenCodegenAgentName {
+		t.Fatalf("expected repeat to preserve agent across rounds before failure, got %+v", runner.runInputs)
+	}
 }
 
 func TestExperimentRepeatServiceGet(t *testing.T) {
@@ -235,6 +265,8 @@ func TestExperimentRepeatServiceGet(t *testing.T) {
 			BaseModel:     model.BaseModel{ID: 7, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
 			Name:          "repeat-3",
 			ModelName:     "mock-cpp17",
+			PromptName:    prompt.DefaultSolvePromptName,
+			AgentName:     agent.DirectCodegenAgentName,
 			ProblemIDs:    "[1,2]",
 			ExperimentIDs: "[10,11]",
 			RepeatCount:   2,
@@ -245,6 +277,8 @@ func TestExperimentRepeatServiceGet(t *testing.T) {
 		getMap: map[uint]*ExperimentOutput{
 			10: {
 				ID:                  10,
+				PromptName:          prompt.DefaultSolvePromptName,
+				AgentName:           agent.DirectCodegenAgentName,
 				ACCount:             1,
 				FailedCount:         1,
 				VerdictDistribution: VerdictDistribution{ACCount: 1, WACount: 1},
@@ -264,6 +298,8 @@ func TestExperimentRepeatServiceGet(t *testing.T) {
 			},
 			11: {
 				ID:                  11,
+				PromptName:          prompt.DefaultSolvePromptName,
+				AgentName:           agent.DirectCodegenAgentName,
 				ACCount:             2,
 				FailedCount:         0,
 				VerdictDistribution: VerdictDistribution{ACCount: 2},
@@ -284,6 +320,12 @@ func TestExperimentRepeatServiceGet(t *testing.T) {
 	}
 	if len(output.ExperimentIDs) != 2 || output.ExperimentIDs[0] != 10 {
 		t.Fatalf("unexpected experiment ids: %+v", output.ExperimentIDs)
+	}
+	if output.PromptName != prompt.DefaultSolvePromptName {
+		t.Fatalf("unexpected prompt name on get: %q", output.PromptName)
+	}
+	if output.AgentName != agent.DirectCodegenAgentName {
+		t.Fatalf("unexpected agent name on get: %q", output.AgentName)
 	}
 	if output.OverallACCount != 3 || output.OverallFailedCount != 1 {
 		t.Fatalf("unexpected aggregate output: %+v", output)

@@ -28,3 +28,7 @@ Thumbs.db
 EOF
 
 configs/config.yaml
+
+scripts/_pycache_/import_problems.cpython-310.pyc
+
+/problems

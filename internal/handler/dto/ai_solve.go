@@ -3,14 +3,18 @@ package dto
 import "time"
 
 type AISolveRequest struct {
-	ProblemID uint   `json:"problem_id" binding:"required"`
-	Model     string `json:"model"`
+	ProblemID  uint   `json:"problem_id" binding:"required"`
+	Model      string `json:"model"`
+	PromptName string `json:"prompt_name"`
+	AgentName  string `json:"agent_name"`
 }
 
 type AISolveResponse struct {
 	AISolveRunID   uint   `json:"ai_solve_run_id"`
 	ProblemID      uint   `json:"problem_id"`
 	Model          string `json:"model,omitempty"`
+	PromptName     string `json:"prompt_name"`
+	AgentName      string `json:"agent_name"`
 	PromptPreview  string `json:"prompt_preview"`
 	RawResponse    string `json:"raw_response,omitempty"`
 	ExtractedCode  string `json:"extracted_code,omitempty"`
@@ -26,6 +30,8 @@ type AISolveResponse struct {
 type AISolveErrorResponse struct {
 	Error          string `json:"error"`
 	AISolveRunID   uint   `json:"ai_solve_run_id,omitempty"`
+	PromptName     string `json:"prompt_name,omitempty"`
+	AgentName      string `json:"agent_name,omitempty"`
 	TokenInput     int64  `json:"token_input"`
 	TokenOutput    int64  `json:"token_output"`
 	LLMLatencyMS   int    `json:"llm_latency_ms"`
@@ -36,6 +42,8 @@ type AISolveRunResponse struct {
 	ID             uint      `json:"id"`
 	ProblemID      uint      `json:"problem_id"`
 	Model          string    `json:"model,omitempty"`
+	PromptName     string    `json:"prompt_name"`
+	AgentName      string    `json:"agent_name"`
 	PromptPreview  string    `json:"prompt_preview,omitempty"`
 	RawResponse    string    `json:"raw_response,omitempty"`
 	ExtractedCode  string    `json:"extracted_code,omitempty"`

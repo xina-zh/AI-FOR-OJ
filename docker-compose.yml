@@ -15,6 +15,7 @@ services:
       APP_NAME: ai-for-oj
       HTTP_HOST: 0.0.0.0
       HTTP_PORT: 8080
+      HTTP_WRITE_TIMEOUT: 300s
       LOG_LEVEL: info
       LOG_FORMAT: json
       DB_HOST: mysql
@@ -22,7 +23,7 @@ services:
       DB_USER: root
       DB_PASSWORD: root
       DB_NAME: ai_for_oj
-      DB_PARAMS: charset=utf8mb4&parseTime=True&loc=Local
+      DB_PARAMS: charset=utf8mb4&collation=utf8mb4_unicode_ci&parseTime=True&loc=Local
       DB_AUTO_MIGRATE: "true"
       DB_INIT_MAX_RETRIES: 20
       DB_INIT_RETRY_INTERVAL: 3s

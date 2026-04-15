@@ -20,16 +20,33 @@ type JudgeSubmissionInput struct {
 }
 
 type JudgeSubmissionOutput struct {
-	SubmissionID uint   `json:"submission_id"`
-	ProblemID    uint   `json:"problem_id"`
-	Language     string `json:"language"`
-	SourceType   string `json:"source_type"`
-	Verdict      string `json:"verdict"`
-	RuntimeMS    int    `json:"runtime_ms"`
-	MemoryKB     int    `json:"memory_kb"`
-	PassedCount  int    `json:"passed_count"`
-	TotalCount   int    `json:"total_count"`
-	ErrorMessage string `json:"error_message,omitempty"`
+	SubmissionID    uint                          `json:"submission_id"`
+	ProblemID       uint                          `json:"problem_id"`
+	Language        string                        `json:"language"`
+	SourceType      string                        `json:"source_type"`
+	Verdict         string                        `json:"verdict"`
+	RuntimeMS       int                           `json:"runtime_ms"`
+	MemoryKB        int                           `json:"memory_kb"`
+	PassedCount     int                           `json:"passed_count"`
+	TotalCount      int                           `json:"total_count"`
+	ErrorMessage    string                        `json:"error_message,omitempty"`
+	CompileStderr   string                        `json:"compile_stderr,omitempty"`
+	RunStdout       string                        `json:"run_stdout,omitempty"`
+	RunStderr       string                        `json:"run_stderr,omitempty"`
+	ExitCode        int                           `json:"exit_code"`
+	TimedOut        bool                          `json:"timed_out"`
+	ExecStage       string                        `json:"exec_stage,omitempty"`
+	TestCaseResults []JudgeSubmissionCaseFeedback `json:"test_case_results,omitempty"`
+}
+
+type JudgeSubmissionCaseFeedback struct {
+	CaseIndex int    `json:"case_index"`
+	Verdict   string `json:"verdict"`
+	RuntimeMS int    `json:"runtime_ms"`
+	Stdout    string `json:"stdout,omitempty"`
+	Stderr    string `json:"stderr,omitempty"`
+	ExitCode  int    `json:"exit_code"`
+	TimedOut  bool   `json:"timed_out"`
 }
 
 type JudgeSubmissionService struct {
@@ -100,6 +117,7 @@ func (s *JudgeSubmissionService) Submit(ctx context.Context, input JudgeSubmissi
 	}
 
 	testCaseResults := make([]model.SubmissionTestCaseResult, 0, len(judgeResult.TestCaseResults))
+	outputCaseResults := make([]JudgeSubmissionCaseFeedback, 0, len(judgeResult.TestCaseResults))
 	for _, item := range judgeResult.TestCaseResults {
 		testCaseResults = append(testCaseResults, model.SubmissionTestCaseResult{
 			SubmissionID: submission.ID,
@@ -112,22 +130,38 @@ func (s *JudgeSubmissionService) Submit(ctx context.Context, input JudgeSubmissi
 			ExitCode:     item.ExitCode,
 			TimedOut:     item.TimedOut,
 		})
+		outputCaseResults = append(outputCaseResults, JudgeSubmissionCaseFeedback{
+			CaseIndex: item.CaseIndex,
+			Verdict:   item.Verdict,
+			RuntimeMS: item.RuntimeMS,
+			Stdout:    item.Stdout,
+			Stderr:    item.Stderr,
+			ExitCode:  item.ExitCode,
+			TimedOut:  item.TimedOut,
+		})
 	}
 	if err := s.submissions.CreateTestCaseResults(ctx, testCaseResults); err != nil {
 		return nil, fmt.Errorf("create submission test case results: %w", err)
 	}
 
 	return &JudgeSubmissionOutput{
-		SubmissionID: submission.ID,
-		ProblemID:    input.ProblemID,
-		Language:     input.Language,
-		SourceType:   submission.SourceType,
-		Verdict:      judgeResult.Verdict,
-		RuntimeMS:    judgeResult.RuntimeMS,
-		MemoryKB:     judgeResult.MemoryKB,
-		PassedCount:  judgeResult.PassedCount,
-		TotalCount:   judgeResult.TotalCount,
-		ErrorMessage: judgeResult.ErrorMessage,
+		SubmissionID:    submission.ID,
+		ProblemID:       input.ProblemID,
+		Language:        input.Language,
+		SourceType:      submission.SourceType,
+		Verdict:         judgeResult.Verdict,
+		RuntimeMS:       judgeResult.RuntimeMS,
+		MemoryKB:        judgeResult.MemoryKB,
+		PassedCount:     judgeResult.PassedCount,
+		TotalCount:      judgeResult.TotalCount,
+		ErrorMessage:    judgeResult.ErrorMessage,
+		CompileStderr:   judgeResult.CompileStderr,
+		RunStdout:       judgeResult.RunStdout,
+		RunStderr:       judgeResult.RunStderr,
+		ExitCode:        judgeResult.ExitCode,
+		TimedOut:        judgeResult.TimedOut,
+		ExecStage:       judgeResult.ExecStage,
+		TestCaseResults: outputCaseResults,
 	}, nil
 }
 

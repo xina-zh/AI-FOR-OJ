@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"ai-for-oj/internal/agent"
 	"ai-for-oj/internal/model"
+	"ai-for-oj/internal/prompt"
 	"ai-for-oj/internal/repository"
 )
 
@@ -86,6 +88,8 @@ func TestExperimentCompareServiceCompare(t *testing.T) {
 				ID:                  10,
 				Name:                "baseline",
 				Model:               "mock-a",
+				PromptName:          prompt.DefaultSolvePromptName,
+				AgentName:           agent.DirectCodegenAgentName,
 				TotalCount:          3,
 				SuccessCount:        3,
 				ACCount:             1,
@@ -114,6 +118,8 @@ func TestExperimentCompareServiceCompare(t *testing.T) {
 				ID:                  20,
 				Name:                "candidate",
 				Model:               "mock-b",
+				PromptName:          prompt.StrictCPP17SolvePromptName,
+				AgentName:           agent.AnalyzeThenCodegenAgentName,
 				TotalCount:          3,
 				SuccessCount:        3,
 				ACCount:             2,
@@ -144,6 +150,8 @@ func TestExperimentCompareServiceCompare(t *testing.T) {
 				ID:                  10,
 				Name:                "baseline",
 				Model:               "mock-a",
+				PromptName:          prompt.DefaultSolvePromptName,
+				AgentName:           agent.DirectCodegenAgentName,
 				TotalCount:          3,
 				SuccessCount:        3,
 				ACCount:             1,
@@ -172,6 +180,8 @@ func TestExperimentCompareServiceCompare(t *testing.T) {
 				ID:                  20,
 				Name:                "candidate",
 				Model:               "mock-b",
+				PromptName:          prompt.StrictCPP17SolvePromptName,
+				AgentName:           agent.AnalyzeThenCodegenAgentName,
 				TotalCount:          3,
 				SuccessCount:        3,
 				ACCount:             2,
@@ -201,10 +211,14 @@ func TestExperimentCompareServiceCompare(t *testing.T) {
 	service := NewExperimentCompareService(repo, runner, "mock-default")
 
 	output, err := service.Compare(context.Background(), CompareExperimentInput{
-		Name:           "compare-1",
-		ProblemIDs:     []uint{1, 2, 3},
-		BaselineModel:  "mock-a",
-		CandidateModel: "mock-b",
+		Name:                "compare-1",
+		ProblemIDs:          []uint{1, 2, 3},
+		BaselineModel:       "mock-a",
+		CandidateModel:      "mock-b",
+		BaselinePromptName:  prompt.DefaultSolvePromptName,
+		CandidatePromptName: prompt.StrictCPP17SolvePromptName,
+		BaselineAgentName:   agent.DirectCodegenAgentName,
+		CandidateAgentName:  agent.AnalyzeThenCodegenAgentName,
 	})
 	if err != nil {
 		t.Fatalf("compare returned error: %v", err)
@@ -216,9 +230,21 @@ func TestExperimentCompareServiceCompare(t *testing.T) {
 	if runner.runInputs[0].Model != "mock-a" || runner.runInputs[1].Model != "mock-b" {
 		t.Fatalf("expected baseline/candidate models to stay independent, got %+v", runner.runInputs)
 	}
+	if runner.runInputs[0].PromptName != prompt.DefaultSolvePromptName || runner.runInputs[1].PromptName != prompt.StrictCPP17SolvePromptName {
+		t.Fatalf("expected baseline/candidate prompt names to stay independent, got %+v", runner.runInputs)
+	}
+	if runner.runInputs[0].AgentName != agent.DirectCodegenAgentName || runner.runInputs[1].AgentName != agent.AnalyzeThenCodegenAgentName {
+		t.Fatalf("expected baseline/candidate agent names to stay independent, got %+v", runner.runInputs)
+	}
 
 	if output.CompareDimension != ExperimentCompareDimensionModel {
 		t.Fatalf("expected compare dimension model, got %s", output.CompareDimension)
+	}
+	if output.BaselinePromptName != prompt.DefaultSolvePromptName || output.CandidatePromptName != prompt.StrictCPP17SolvePromptName {
+		t.Fatalf("unexpected top-level prompt names: %+v", output)
+	}
+	if output.BaselineAgentName != agent.DirectCodegenAgentName || output.CandidateAgentName != agent.AnalyzeThenCodegenAgentName {
+		t.Fatalf("unexpected top-level agent names: %+v", output)
 	}
 
 	if output.DeltaACCount != 1 || output.DeltaFailedCount != 0 {
@@ -234,6 +260,18 @@ func TestExperimentCompareServiceCompare(t *testing.T) {
 		output.CostComparison.DeltaTotalLatencyMS != 90 ||
 		output.CostComparison.DeltaAverageTotalLatencyMS != 30 {
 		t.Fatalf("unexpected cost comparison summary: %+v", output.CostComparison)
+	}
+	if !output.ComparisonSummary.CandidateBetterAC ||
+		output.ComparisonSummary.CandidateWorseAC ||
+		output.ComparisonSummary.CandidateSameAC ||
+		!output.ComparisonSummary.CandidateMoreExpensive ||
+		output.ComparisonSummary.CandidateCheaper ||
+		output.ComparisonSummary.CandidateSameCost ||
+		!output.ComparisonSummary.CandidateSlower ||
+		output.ComparisonSummary.CandidateFaster ||
+		output.ComparisonSummary.CandidateSameLatency ||
+		output.ComparisonSummary.TradeoffType != "improved_with_higher_cost" {
+		t.Fatalf("unexpected comparison summary: %+v", output.ComparisonSummary)
 	}
 	if output.ImprovedCount != 1 || output.RegressedCount != 0 || output.ChangedNonACCount != 1 {
 		t.Fatalf("unexpected change summary: %+v", output)
@@ -279,10 +317,14 @@ func TestExperimentCompareServiceCompareCandidateFailure(t *testing.T) {
 	service := NewExperimentCompareService(repo, runner, "mock-default")
 
 	_, err := service.Compare(context.Background(), CompareExperimentInput{
-		Name:           "compare-2",
-		ProblemIDs:     []uint{1, 2},
-		BaselineModel:  "mock-a",
-		CandidateModel: "mock-b",
+		Name:                "compare-2",
+		ProblemIDs:          []uint{1, 2},
+		BaselineModel:       "mock-a",
+		CandidateModel:      "mock-b",
+		BaselinePromptName:  prompt.DefaultSolvePromptName,
+		CandidatePromptName: prompt.StrictCPP17SolvePromptName,
+		BaselineAgentName:   agent.DirectCodegenAgentName,
+		CandidateAgentName:  agent.AnalyzeThenCodegenAgentName,
 	})
 	if err == nil {
 		t.Fatal("expected compare to return error when candidate run fails")
@@ -294,6 +336,12 @@ func TestExperimentCompareServiceCompareCandidateFailure(t *testing.T) {
 	if len(runner.runInputs) != 2 || runner.runInputs[0].Model != "mock-a" || runner.runInputs[1].Model != "mock-b" {
 		t.Fatalf("expected compare to pass distinct models before candidate failure, got %+v", runner.runInputs)
 	}
+	if runner.runInputs[0].PromptName != prompt.DefaultSolvePromptName || runner.runInputs[1].PromptName != prompt.StrictCPP17SolvePromptName {
+		t.Fatalf("expected compare to preserve distinct prompt names before candidate failure, got %+v", runner.runInputs)
+	}
+	if runner.runInputs[0].AgentName != agent.DirectCodegenAgentName || runner.runInputs[1].AgentName != agent.AnalyzeThenCodegenAgentName {
+		t.Fatalf("expected compare to preserve distinct agent names before candidate failure, got %+v", runner.runInputs)
+	}
 }
 
 func TestExperimentCompareServiceGet(t *testing.T) {
@@ -304,6 +352,10 @@ func TestExperimentCompareServiceGet(t *testing.T) {
 			CompareDimension:      ExperimentCompareDimensionModel,
 			BaselineValue:         "mock-a",
 			CandidateValue:        "mock-b",
+			BaselinePromptName:    prompt.DefaultSolvePromptName,
+			CandidatePromptName:   prompt.StrictCPP17SolvePromptName,
+			BaselineAgentName:     agent.DirectCodegenAgentName,
+			CandidateAgentName:    agent.AnalyzeThenCodegenAgentName,
 			ProblemIDs:            "[1,2]",
 			BaselineExperimentID:  uintPtr(10),
 			CandidateExperimentID: uintPtr(20),
@@ -317,6 +369,8 @@ func TestExperimentCompareServiceGet(t *testing.T) {
 			10: {
 				ID:                  10,
 				Name:                "baseline",
+				PromptName:          prompt.DefaultSolvePromptName,
+				AgentName:           agent.DirectCodegenAgentName,
 				VerdictDistribution: VerdictDistribution{ACCount: 1, WACount: 1},
 				CostSummary: ExperimentCostSummary{
 					TotalTokenInput:       210,
@@ -339,6 +393,8 @@ func TestExperimentCompareServiceGet(t *testing.T) {
 			20: {
 				ID:                  20,
 				Name:                "candidate",
+				PromptName:          prompt.StrictCPP17SolvePromptName,
+				AgentName:           agent.AnalyzeThenCodegenAgentName,
 				VerdictDistribution: VerdictDistribution{ACCount: 1, CECount: 1},
 				CostSummary: ExperimentCostSummary{
 					TotalTokenInput:       180,
@@ -370,6 +426,12 @@ func TestExperimentCompareServiceGet(t *testing.T) {
 	if output.BaselineExperimentID != 10 || output.CandidateExperimentID != 20 {
 		t.Fatalf("unexpected experiment ids: %+v", output)
 	}
+	if output.BaselinePromptName != prompt.DefaultSolvePromptName || output.CandidatePromptName != prompt.StrictCPP17SolvePromptName {
+		t.Fatalf("unexpected prompt names on get: %+v", output)
+	}
+	if output.BaselineAgentName != agent.DirectCodegenAgentName || output.CandidateAgentName != agent.AnalyzeThenCodegenAgentName {
+		t.Fatalf("unexpected agent names on get: %+v", output)
+	}
 
 	if len(output.ProblemIDs) != 2 || output.ProblemIDs[0] != 1 {
 		t.Fatalf("unexpected problem ids: %+v", output.ProblemIDs)
@@ -385,6 +447,18 @@ func TestExperimentCompareServiceGet(t *testing.T) {
 		output.CostComparison.DeltaAverageTotalLatencyMS != -45 {
 		t.Fatalf("unexpected cost comparison on get: %+v", output.CostComparison)
 	}
+	if output.ComparisonSummary.CandidateBetterAC ||
+		output.ComparisonSummary.CandidateWorseAC ||
+		!output.ComparisonSummary.CandidateSameAC ||
+		output.ComparisonSummary.CandidateMoreExpensive ||
+		!output.ComparisonSummary.CandidateCheaper ||
+		output.ComparisonSummary.CandidateSameCost ||
+		output.ComparisonSummary.CandidateSlower ||
+		!output.ComparisonSummary.CandidateFaster ||
+		output.ComparisonSummary.CandidateSameLatency ||
+		output.ComparisonSummary.TradeoffType != "same_outcome_lower_cost" {
+		t.Fatalf("unexpected comparison summary on get: %+v", output.ComparisonSummary)
+	}
 	if output.ImprovedCount != 0 || output.RegressedCount != 0 || output.ChangedNonACCount != 1 {
 		t.Fatalf("unexpected per-problem change counts: %+v", output)
 	}
@@ -393,6 +467,94 @@ func TestExperimentCompareServiceGet(t *testing.T) {
 	}
 	if len(output.HighlightedProblems) != 2 || output.HighlightedProblems[0].ProblemID != 1 || output.HighlightedProblems[0].ChangeType != "changed_non_ac" {
 		t.Fatalf("unexpected highlighted problems on get: %+v", output.HighlightedProblems)
+	}
+}
+
+func TestExperimentCompareServiceCompareUsesPromptDimensionForSameModelDifferentPrompt(t *testing.T) {
+	repo := &fakeExperimentCompareRepository{}
+	runner := &fakeExperimentRunner{
+		runOutputs: []*ExperimentOutput{
+			{ID: 10, Model: "mock-a", PromptName: prompt.DefaultSolvePromptName, AgentName: agent.DirectCodegenAgentName},
+			{ID: 20, Model: "mock-a", PromptName: prompt.StrictCPP17SolvePromptName, AgentName: agent.AnalyzeThenCodegenAgentName},
+		},
+	}
+	service := NewExperimentCompareService(repo, runner, "mock-default")
+
+	output, err := service.Compare(context.Background(), CompareExperimentInput{
+		Name:                "compare-prompt",
+		ProblemIDs:          []uint{1},
+		BaselineModel:       "mock-a",
+		CandidateModel:      "mock-a",
+		BaselinePromptName:  prompt.DefaultSolvePromptName,
+		CandidatePromptName: prompt.StrictCPP17SolvePromptName,
+		BaselineAgentName:   agent.DirectCodegenAgentName,
+		CandidateAgentName:  agent.AnalyzeThenCodegenAgentName,
+	})
+	if err != nil {
+		t.Fatalf("compare returned error: %v", err)
+	}
+	if output.CompareDimension != ExperimentCompareDimensionPrompt {
+		t.Fatalf("expected compare dimension prompt, got %s", output.CompareDimension)
+	}
+	if output.BaselineValue != prompt.DefaultSolvePromptName || output.CandidateValue != prompt.StrictCPP17SolvePromptName {
+		t.Fatalf("expected prompt names to be stored as compare values, got %+v", output)
+	}
+}
+
+func TestExperimentCompareServiceCompareUsesAgentDimensionForSameModelAndPrompt(t *testing.T) {
+	repo := &fakeExperimentCompareRepository{}
+	runner := &fakeExperimentRunner{
+		runOutputs: []*ExperimentOutput{
+			{ID: 10, Model: "mock-a", PromptName: prompt.DefaultSolvePromptName, AgentName: agent.DirectCodegenAgentName},
+			{ID: 20, Model: "mock-a", PromptName: prompt.DefaultSolvePromptName, AgentName: agent.AnalyzeThenCodegenAgentName},
+		},
+	}
+	service := NewExperimentCompareService(repo, runner, "mock-default")
+
+	output, err := service.Compare(context.Background(), CompareExperimentInput{
+		Name:                "compare-agent",
+		ProblemIDs:          []uint{1},
+		BaselineModel:       "mock-a",
+		CandidateModel:      "mock-a",
+		BaselinePromptName:  prompt.DefaultSolvePromptName,
+		CandidatePromptName: prompt.DefaultSolvePromptName,
+		BaselineAgentName:   agent.DirectCodegenAgentName,
+		CandidateAgentName:  agent.AnalyzeThenCodegenAgentName,
+	})
+	if err != nil {
+		t.Fatalf("compare returned error: %v", err)
+	}
+	if output.CompareDimension != ExperimentCompareDimensionAgent {
+		t.Fatalf("expected compare dimension agent, got %s", output.CompareDimension)
+	}
+	if output.BaselineValue != agent.DirectCodegenAgentName || output.CandidateValue != agent.AnalyzeThenCodegenAgentName {
+		t.Fatalf("expected agent names to be stored as compare values, got %+v", output)
+	}
+}
+
+func TestBuildExperimentCompareSummarySameOutcomeSameCost(t *testing.T) {
+	summary := buildExperimentCompareSummary(
+		&ExperimentOutput{ACCount: 2},
+		&ExperimentOutput{ACCount: 2},
+		ExperimentCompareCostComparison{
+			BaselineTotalTokens:            100,
+			CandidateTotalTokens:           100,
+			BaselineAverageTotalLatencyMS:  50,
+			CandidateAverageTotalLatencyMS: 50,
+		},
+	)
+
+	if summary.CandidateBetterAC || summary.CandidateWorseAC || !summary.CandidateSameAC {
+		t.Fatalf("unexpected ac flags: %+v", summary)
+	}
+	if summary.CandidateMoreExpensive || summary.CandidateCheaper || !summary.CandidateSameCost {
+		t.Fatalf("unexpected cost flags: %+v", summary)
+	}
+	if summary.CandidateSlower || summary.CandidateFaster || !summary.CandidateSameLatency {
+		t.Fatalf("unexpected latency flags: %+v", summary)
+	}
+	if summary.TradeoffType != "same_outcome_same_cost" {
+		t.Fatalf("unexpected tradeoff type: %+v", summary)
 	}
 }
 

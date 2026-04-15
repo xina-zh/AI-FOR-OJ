@@ -5,14 +5,17 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"ai-for-oj/internal/config"
 )
@@ -24,6 +27,8 @@ const (
 	defaultMockResponse      = "```cpp\n#include <bits/stdc++.h>\nusing namespace std;\nint main(){ios::sync_with_stdio(false);cin.tie(nullptr);string line;bool first=true;while(getline(cin,line)){if(!first) cout << \"\\n\";cout << line;first=false;}return 0;}\n```"
 	defaultChatMaxTokens     = 4096
 )
+
+var errEmptyResponseBody = errors.New("llm response body is empty")
 
 type Client interface {
 	Generate(ctx context.Context, req GenerateRequest) (GenerateResponse, error)
@@ -58,7 +63,7 @@ func NewClient(cfg config.LLMConfig, logger *slog.Logger) (Client, error) {
 		}
 		timeout := cfg.Timeout
 		if timeout <= 0 {
-			timeout = 30 * time.Second
+			timeout = 60 * time.Second
 		}
 		return &OpenAICompatibleClient{
 			baseURL: baseURL,
@@ -145,6 +150,14 @@ func (c *OpenAICompatibleClient) Generate(ctx context.Context, req GenerateReque
 
 	respBody, parsed, err := c.doChatCompletion(ctx, requestURL, body)
 	if err != nil {
+		if c.logger != nil {
+			c.logger.Warn("llm generation failed",
+				"provider", ProviderOpenAICompatible,
+				"model", effectiveModel(req.Model, c.model),
+				"url", requestURL,
+				"error", err,
+			)
+		}
 		return GenerateResponse{}, err
 	}
 
@@ -181,19 +194,36 @@ type parsedOpenAICompatibleResponse struct {
 }
 
 func (c *OpenAICompatibleClient) doChatCompletion(ctx context.Context, requestURL string, body []byte) ([]byte, parsedOpenAICompatibleResponse, error) {
-	const maxAttempts = 2
+	const maxAttempts = 5
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		respBody, parsed, err := c.doChatCompletionOnce(ctx, requestURL, body)
-		if err == nil {
+		retryableStatus := err == nil && isRetryableStatusCode(parsed.StatusCode)
+		if err == nil && (!retryableStatus || attempt == maxAttempts) {
 			return respBody, parsed, nil
 		}
-		if attempt == maxAttempts || !isRetryableTransportError(err) {
-			return nil, parsed, err
+		retryable := isRetryableRequestError(ctx, err) || retryableStatus
+		if c.logger != nil {
+			c.logger.Warn("llm request attempt failed",
+				"provider", ProviderOpenAICompatible,
+				"url", requestURL,
+				"attempt", attempt,
+				"max_attempts", maxAttempts,
+				"status", parsed.StatusCode,
+				"retryable", retryable,
+				"error", err,
+			)
+		}
+		if err == nil {
+			err = fmt.Errorf("llm request failed url=%s status=%d", requestURL, parsed.StatusCode)
+		}
+		if attempt == maxAttempts || !retryable {
+			return respBody, parsed, err
 		}
 		if transport, ok := c.client.Transport.(*http.Transport); ok {
 			transport.CloseIdleConnections()
 		}
+		time.Sleep(retryDelay(attempt))
 	}
 
 	return nil, parsedOpenAICompatibleResponse{}, fmt.Errorf("llm request failed url=%s: exhausted retries", requestURL)
@@ -233,6 +263,22 @@ func (c *OpenAICompatibleClient) doChatCompletionOnce(ctx context.Context, reque
 	}
 
 	var parsed openAICompatibleResponse
+	if resp.StatusCode >= http.StatusBadRequest {
+		_ = json.Unmarshal(respBody, &parsed)
+		return respBody, parsedOpenAICompatibleResponse{
+			openAICompatibleResponse: parsed,
+			StatusCode:               resp.StatusCode,
+		}, nil
+	}
+	if strings.TrimSpace(string(respBody)) == "" {
+		return nil, parsedOpenAICompatibleResponse{StatusCode: resp.StatusCode}, fmt.Errorf(
+			"decode llm response url=%s status=%d request_body=%s: %w",
+			requestURL,
+			resp.StatusCode,
+			requestBodyPreview,
+			errEmptyResponseBody,
+		)
+	}
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
 		return nil, parsedOpenAICompatibleResponse{StatusCode: resp.StatusCode}, fmt.Errorf(
 			"decode llm response url=%s status=%d request_body=%s body=%s: %w",
@@ -309,18 +355,69 @@ func newOpenAICompatibleTransport() *http.Transport {
 	}
 }
 
+func isRetryableRequestError(ctx context.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return false
+	}
+	return isRetryableTransportError(err) || isRetryableTimeoutError(err) || errors.Is(err, errEmptyResponseBody)
+}
+
 func isRetryableTransportError(err error) bool {
 	if err == nil {
 		return false
 	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
 	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "unexpected eof") || strings.Contains(message, "eof")
+	return strings.Contains(message, "unexpected eof") ||
+		strings.Contains(message, "eof") ||
+		strings.Contains(message, "connection reset by peer")
+}
+
+func isRetryableTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	return errors.Is(err, context.DeadlineExceeded)
+}
+
+func isRetryableStatusCode(statusCode int) bool {
+	switch statusCode {
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func retryDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	base := 300 * time.Millisecond
+	delay := base << (attempt - 1)
+	if delay > 3*time.Second {
+		delay = 3 * time.Second
+	}
+	jitter := time.Duration(rand.Intn(151)) * time.Millisecond
+	return delay + jitter
 }
 
 func truncateErrorBody(body string, limit int) string {
 	body = strings.TrimSpace(body)
-	if limit <= 0 || len(body) <= limit {
+	if limit <= 0 {
 		return body
 	}
-	return body[:limit] + "...(truncated)"
+	if utf8.RuneCountInString(body) <= limit {
+		return body
+	}
+	return string([]rune(body)[:limit]) + "...(truncated)"
 }

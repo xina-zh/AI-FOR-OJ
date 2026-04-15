@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -11,6 +12,11 @@ import (
 )
 
 const defaultConfigPath = "configs/config.yaml"
+
+const (
+	defaultDBCharset   = "utf8mb4"
+	defaultDBCollation = "utf8mb4_unicode_ci"
+)
 
 type Config struct {
 	App      AppConfig      `yaml:"app"`
@@ -94,7 +100,19 @@ func Load(path string) (Config, error) {
 }
 
 func (c DatabaseConfig) DSN() string {
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?%s", c.User, c.Password, c.Host, c.Port, c.Name, c.Params)
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?%s", c.User, c.Password, c.Host, c.Port, c.Name, c.normalizedParams())
+}
+
+func (c DatabaseConfig) normalizedParams() string {
+	values, err := url.ParseQuery(c.Params)
+	if err != nil {
+		values = url.Values{}
+	}
+
+	values.Set("charset", defaultDBCharset)
+	values.Set("collation", defaultDBCollation)
+
+	return values.Encode()
 }
 
 func defaultConfig() Config {
@@ -107,7 +125,7 @@ func defaultConfig() Config {
 			Host:            "0.0.0.0",
 			Port:            8080,
 			ReadTimeout:     10 * time.Second,
-			WriteTimeout:    10 * time.Second,
+			WriteTimeout:    5 * time.Minute,
 			IdleTimeout:     60 * time.Second,
 			ShutdownTimeout: 10 * time.Second,
 		},
@@ -121,7 +139,7 @@ func defaultConfig() Config {
 			User:              "root",
 			Password:          "root",
 			Name:              "ai_for_oj",
-			Params:            "charset=utf8mb4&parseTime=True&loc=Local",
+			Params:            "charset=utf8mb4&collation=utf8mb4_unicode_ci&parseTime=True&loc=Local",
 			AutoMigrate:       true,
 			MaxOpenConns:      20,
 			MaxIdleConns:      10,
@@ -139,7 +157,7 @@ func defaultConfig() Config {
 		LLM: LLMConfig{
 			Provider: "mock",
 			Model:    "mock-cpp17",
-			Timeout:  30 * time.Second,
+			Timeout:  60 * time.Second,
 		},
 	}
 }

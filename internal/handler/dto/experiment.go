@@ -10,6 +10,8 @@ type RunExperimentRequest struct {
 	Name       string `json:"name"`
 	ProblemIDs []uint `json:"problem_ids" binding:"required,min=1"`
 	Model      string `json:"model"`
+	PromptName string `json:"prompt_name"`
+	AgentName  string `json:"agent_name"`
 }
 
 type ExperimentRunResponse struct {
@@ -28,6 +30,8 @@ type ExperimentResponse struct {
 	ID                  uint                          `json:"id"`
 	Name                string                        `json:"name"`
 	Model               string                        `json:"model"`
+	PromptName          string                        `json:"prompt_name"`
+	AgentName           string                        `json:"agent_name"`
 	Status              string                        `json:"status"`
 	TotalCount          int                           `json:"total_count"`
 	SuccessCount        int                           `json:"success_count"`

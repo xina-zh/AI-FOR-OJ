@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"ai-for-oj/internal/agent"
 	"ai-for-oj/internal/model"
+	"ai-for-oj/internal/prompt"
 	"ai-for-oj/internal/repository"
 )
 
@@ -24,6 +26,8 @@ type RunExperimentInput struct {
 	Name       string
 	ProblemIDs []uint
 	Model      string
+	PromptName string
+	AgentName  string
 }
 
 type ExperimentRunOutput struct {
@@ -56,6 +60,8 @@ type ExperimentOutput struct {
 	ID                  uint                  `json:"id"`
 	Name                string                `json:"name"`
 	Model               string                `json:"model"`
+	PromptName          string                `json:"prompt_name"`
+	AgentName           string                `json:"agent_name"`
 	Status              string                `json:"status"`
 	TotalCount          int                   `json:"total_count"`
 	SuccessCount        int                   `json:"success_count"`
@@ -87,9 +93,20 @@ func NewExperimentService(
 }
 
 func (s *ExperimentService) Run(ctx context.Context, input RunExperimentInput) (*ExperimentOutput, error) {
+	resolvedPromptName, err := prompt.ResolveSolvePromptName(input.PromptName)
+	if err != nil {
+		return nil, err
+	}
+	resolvedAgentName, err := agent.ResolveSolveAgentName(input.AgentName)
+	if err != nil {
+		return nil, err
+	}
+
 	experiment := &model.Experiment{
 		Name:       defaultExperimentName(input.Name),
 		ModelName:  firstNonEmpty(input.Model, s.defaultModel),
+		PromptName: resolvedPromptName,
+		AgentName:  resolvedAgentName,
 		Status:     ExperimentStatusRunning,
 		TotalCount: len(input.ProblemIDs),
 	}
@@ -99,8 +116,10 @@ func (s *ExperimentService) Run(ctx context.Context, input RunExperimentInput) (
 
 	for index, problemID := range input.ProblemIDs {
 		aiOutput, err := s.aiSolver.Solve(ctx, AISolveInput{
-			ProblemID: problemID,
-			Model:     experiment.ModelName,
+			ProblemID:  problemID,
+			Model:      experiment.ModelName,
+			PromptName: experiment.PromptName,
+			AgentName:  experiment.AgentName,
 		})
 
 		run := &model.ExperimentRun{
@@ -167,6 +186,8 @@ func toExperimentOutput(experiment *model.Experiment) *ExperimentOutput {
 		ID:           experiment.ID,
 		Name:         experiment.Name,
 		Model:        experiment.ModelName,
+		PromptName:   prompt.DisplaySolvePromptName(experiment.PromptName),
+		AgentName:    agent.DisplaySolveAgentName(experiment.AgentName),
 		Status:       experiment.Status,
 		TotalCount:   experiment.TotalCount,
 		SuccessCount: experiment.SuccessCount,
