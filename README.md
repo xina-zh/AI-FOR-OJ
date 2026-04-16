@@ -329,3 +329,90 @@ export LLM_MODEL=your-actual-model-name
 - 在保持最小实现的前提下继续补强变量实验能力
 
 但在进入下一阶段之前，当前这一版已经适合作为一个清晰的阶段性里程碑提交到 GitHub。
+
+1. 通用参数说明
+
+这些参数在不同接口里会重复出现。
+
+problem_id
+
+单题 ID
+用在 POST /api/v1/ai/solve
+problem_ids
+
+多题 ID 列表
+用在 experiment / repeat / compare
+例如：[10, 11, 12]
+model
+
+本次调用使用的模型名
+gpt-5.4
+claude-opus-4-6
+gemini-2.5-pro
+mock-cpp17
+prompt_name
+
+提示词模板名
+default
+cpp17_minimal
+strict_cpp17
+agent_name
+
+解题策略名
+direct_codegen  直接生成一次代码，不修复
+direct_codegen_repair  先生成代码，失败后最多再修复 2 次
+analyze_then_codegen  先分析，再生成代码
+
+repeat_count  repeat 实验重复次数
+
+baseline_*  compare 里的 baseline 一侧参数
+candidate_*  compare 里的 candidate 一侧参数
+2. 调用一次的模板
+
+单次 ai/solve。
+
+curl --noproxy '*' -sS -X POST http://127.0.0.1:8080/api/v1/ai/solve \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "problem_id": 2,
+    "model": "claude-opus-4-6",
+    "prompt_name": "default",
+    "agent_name": "direct_codegen"
+  }'
+
+curl --noproxy '*' -sS http://127.0.0.1:8080/api/v1/ai/solve-runs/<AI_SOLVE_RUN_ID>
+3. 调用 repeat 的模板
+
+
+curl --noproxy '*' -sS -X POST http://127.0.0.1:8080/api/v1/experiments/repeat \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "repeat-direct-codegen-10x",
+    "problem_ids": [13],
+    "model": "claude-opus-4-6",
+    "prompt_name": "default",
+    "agent_name": "direct_codegen",
+    "repeat_count": 10
+  }'
+
+查 repeat 结果：
+
+curl --noproxy '*' -sS http://127.0.0.1:8080/api/v1/experiments/repeat/<REPEAT_ID>
+
+
+4. 调用 compare 的模板
+
+curl --noproxy '*' -sS -X POST http://127.0.0.1:8080/api/v1/experiments/compare \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "compare-direct-vs-repair",
+    "problem_ids": [13],
+    "baseline_model": "claude-opus-4-6",
+    "candidate_model": "claude-opus-4-6",
+    "baseline_prompt_name": "default",
+    "candidate_prompt_name": "default",
+    "baseline_agent_name": "direct_codegen",
+    "candidate_agent_name": "direct_codegen_repair"
+  }'
+
+curl --noproxy '*' -sS http://127.0.0.1:8080/api/v1/experiments/compare/<COMPARE_ID>
