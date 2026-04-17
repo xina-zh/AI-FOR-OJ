@@ -44,9 +44,9 @@ func TestBuildVerdictSpecificRepairPromptsUseDistinctInstructions(t *testing.T) 
 		Samples:     `[{"input":"1","output":"1"}]`,
 	}
 
-	waPrompt := BuildWARepairPrompt(problem, "int main() { return 0; }", "wrong answer on edge case")
-	rePrompt := BuildRERepairPrompt(problem, "int main() { return 0; }", "segmentation fault")
-	tlePrompt := BuildTLERepairPrompt(problem, "int main() { return 0; }", "time limit exceeded")
+	waPrompt := BuildWARepairPrompt(problem, CPP17MinimalSolvePromptName, "int main() { return 0; }", "wrong answer on edge case")
+	rePrompt := BuildRERepairPrompt(problem, StrictCPP17SolvePromptName, "int main() { return 0; }", "segmentation fault")
+	tlePrompt := BuildTLERepairPrompt(problem, CPP17MinimalSolvePromptName, "int main() { return 0; }", "time limit exceeded")
 
 	for name, prompt := range map[string]string{
 		"wa":  waPrompt,
@@ -56,6 +56,16 @@ func TestBuildVerdictSpecificRepairPromptsUseDistinctInstructions(t *testing.T) 
 		if !strings.Contains(prompt, "PROMPT_TEMPLATE: repair_"+name) {
 			t.Fatalf("expected %s repair prompt marker, got %q", name, prompt)
 		}
+	}
+
+	if !strings.Contains(waPrompt, "PROMPT_TEMPLATE: cpp17_minimal") {
+		t.Fatalf("expected WA repair prompt to preserve cpp17_minimal family, got %q", waPrompt)
+	}
+	if !strings.Contains(rePrompt, "PROMPT_TEMPLATE: strict_cpp17") {
+		t.Fatalf("expected RE repair prompt to preserve strict_cpp17 family, got %q", rePrompt)
+	}
+	if !strings.Contains(tlePrompt, "PROMPT_TEMPLATE: cpp17_minimal") {
+		t.Fatalf("expected TLE repair prompt to preserve cpp17_minimal family, got %q", tlePrompt)
 	}
 
 	if !strings.Contains(waPrompt, "diagnose the mistake") ||

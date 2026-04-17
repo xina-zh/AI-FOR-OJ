@@ -212,11 +212,11 @@ func buildAdaptiveRepairPrompt(problem *model.Problem, promptName, stage, previo
 	feedbackText := renderJudgeFeedback(feedback)
 	switch stage {
 	case RepairStageWAAnalysisRepair:
-		return prompt.BuildWARepairPrompt(problem, previousCode, feedbackText)
+		return prompt.BuildWARepairPrompt(problem, promptName, previousCode, feedbackText)
 	case RepairStageRESafetyRepair:
-		return prompt.BuildRERepairPrompt(problem, previousCode, feedbackText)
+		return prompt.BuildRERepairPrompt(problem, promptName, previousCode, feedbackText)
 	case RepairStageTLEComplexityRewrite:
-		return prompt.BuildTLERepairPrompt(problem, previousCode, feedbackText)
+		return prompt.BuildTLERepairPrompt(problem, promptName, previousCode, feedbackText)
 	default:
 		return prompt.BuildRepairPrompt(problem, promptName, previousCode, feedbackText)
 	}

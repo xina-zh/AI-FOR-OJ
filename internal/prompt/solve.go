@@ -118,8 +118,8 @@ Judge Feedback:
 `, base, previousCode, feedback))
 }
 
-func buildVerdictRepairPrompt(problem *model.Problem, templateName string, instructions []string, previousCode, feedback string) string {
-	base := BuildSolvePrompt(problem, DefaultSolvePromptName)
+func buildVerdictRepairPrompt(problem *model.Problem, promptName, templateName string, instructions []string, previousCode, feedback string) string {
+	base := BuildSolvePrompt(problem, promptName)
 	previousCode = strings.TrimSpace(previousCode)
 	feedback = strings.TrimSpace(feedback)
 

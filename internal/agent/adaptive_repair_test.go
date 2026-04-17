@@ -7,6 +7,7 @@ import (
 
 	"ai-for-oj/internal/llm"
 	"ai-for-oj/internal/model"
+	"ai-for-oj/internal/prompt"
 )
 
 func TestClassifyFailure(t *testing.T) {
@@ -302,11 +303,13 @@ func TestAdaptiveRepairStrategyFallsBackWithoutJudgeSubmitter(t *testing.T) {
 		},
 	}
 
-	got, err := adaptiveRepairStrategy{}.Execute(context.Background(), client, SolveInput{
+	input := SolveInput{
 		Problem:    adaptiveRepairTestProblem(),
 		Model:      "default-model",
-		PromptName: "default",
-	})
+		PromptName: prompt.StrictCPP17SolvePromptName,
+	}
+
+	got, err := adaptiveRepairStrategy{}.Execute(context.Background(), client, input)
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
@@ -316,8 +319,38 @@ func TestAdaptiveRepairStrategyFallsBackWithoutJudgeSubmitter(t *testing.T) {
 	if len(client.requests) != 1 {
 		t.Fatalf("LLM request count = %d, want 1", len(client.requests))
 	}
-	if !strings.Contains(client.requests[0].Prompt, "PROMPT_TEMPLATE: default") {
-		t.Fatalf("prompt = %q, want single-solve default prompt", client.requests[0].Prompt)
+	directClient := &fakeSolveLLMClient{
+		responses: []llm.GenerateResponse{
+			{
+				Model:        "solver-model",
+				Content:      "```cpp\nint main() { return 0; }\n```",
+				InputTokens:  11,
+				OutputTokens: 7,
+			},
+		},
+	}
+	directGot, directErr := directCodegenStrategy{}.Execute(context.Background(), directClient, input)
+	if directErr != nil {
+		t.Fatalf("directCodegenStrategy.Execute returned error: %v", directErr)
+	}
+	if got.Model != directGot.Model ||
+		got.PromptPreview != directGot.PromptPreview ||
+		got.RawResponse != directGot.RawResponse ||
+		got.TokenInput != directGot.TokenInput ||
+		got.TokenOutput != directGot.TokenOutput {
+		t.Fatalf("adaptive repair fallback output = %+v, want direct solve output %+v", got, directGot)
+	}
+	if got.LLMLatencyMS < 0 || directGot.LLMLatencyMS < 0 {
+		t.Fatalf("unexpected negative latency: adaptive=%d direct=%d", got.LLMLatencyMS, directGot.LLMLatencyMS)
+	}
+	if len(directClient.requests) != 1 {
+		t.Fatalf("direct solve LLM request count = %d, want 1", len(directClient.requests))
+	}
+	if client.requests[0].Prompt != directClient.requests[0].Prompt {
+		t.Fatalf("fallback prompt = %q, want direct prompt %q", client.requests[0].Prompt, directClient.requests[0].Prompt)
+	}
+	if !strings.Contains(client.requests[0].Prompt, "PROMPT_TEMPLATE: strict_cpp17") {
+		t.Fatalf("prompt = %q, want strict_cpp17 solve prompt", client.requests[0].Prompt)
 	}
 }
 
