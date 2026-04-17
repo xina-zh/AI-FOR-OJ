@@ -118,6 +118,35 @@ Judge Feedback:
 `, base, previousCode, feedback))
 }
 
+func buildVerdictRepairPrompt(problem *model.Problem, templateName string, instructions []string, previousCode, feedback string) string {
+	base := BuildSolvePrompt(problem, DefaultSolvePromptName)
+	previousCode = strings.TrimSpace(previousCode)
+	feedback = strings.TrimSpace(feedback)
+
+	lines := make([]string, 0, len(instructions))
+	for i, instruction := range instructions {
+		lines = append(lines, fmt.Sprintf("%d. %s", i+1, instruction))
+	}
+
+	return strings.TrimSpace(fmt.Sprintf(`
+%s
+
+PROMPT_TEMPLATE: %s
+
+Your previous submission failed.
+Repair the solution using the verdict-specific guidance below.
+
+Repair requirements:
+%s
+
+Previous Code (cpp):
+%s
+
+Judge Feedback:
+%s
+`, base, templateName, strings.Join(lines, "\n"), previousCode, feedback))
+}
+
 func buildDefaultSolvePrompt(problem *model.Problem) string {
 	return strings.TrimSpace(fmt.Sprintf(`
 PROMPT_TEMPLATE: default
