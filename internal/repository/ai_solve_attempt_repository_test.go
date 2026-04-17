@@ -56,6 +56,18 @@ func TestAISolveAttemptRepositoryCreateAndListByRunID(t *testing.T) {
 	}
 }
 
+func TestAttemptConnRejectsUnknownStatements(t *testing.T) {
+	conn := &attemptConn{store: &attemptStore{}}
+
+	if _, err := conn.exec("update ai_solve_attempts set stage = 'x'", nil); err == nil {
+		t.Fatal("expected unknown exec statement to fail")
+	}
+
+	if _, err := conn.query("select 1", nil); err == nil {
+		t.Fatal("expected unknown query statement to fail")
+	}
+}
+
 func openAttemptRepositoryTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
@@ -149,58 +161,84 @@ func (s *attemptStmt) Query(args []driver.Value) (driver.Rows, error) {
 }
 
 func (c *attemptConn) exec(query string, args []driver.Value) (driver.Result, error) {
-	if !strings.Contains(strings.ToLower(query), "insert into `ai_solve_attempts`") {
+	normalized := normalizeSQL(query)
+
+	switch {
+	case strings.HasPrefix(normalized, "insert into `ai_solve_attempts`"):
+		if len(args) < 5 {
+			return nil, fmt.Errorf("expected insert args, got %d", len(args))
+		}
+
+		c.store.mu.Lock()
+		defer c.store.mu.Unlock()
+
+		c.store.nextID++
+		attempt := model.AISolveAttempt{
+			BaseModel: model.BaseModel{
+				ID:        uint(c.store.nextID),
+				CreatedAt: asTime(args[0]),
+				UpdatedAt: asTime(args[1]),
+			},
+			AISolveRunID: asUint(args[2]),
+			AttemptNo:    asInt(args[3]),
+			Stage:        asString(args[4]),
+		}
+		c.store.attempts = append(c.store.attempts, attempt)
+
+		return attemptResult(c.store.nextID), nil
+	case strings.HasPrefix(normalized, "create table `ai_solve_attempts`"):
 		return attemptResult(0), nil
+	default:
+		return nil, fmt.Errorf("unexpected exec statement: %s", query)
 	}
-	if len(args) < 5 {
-		return nil, fmt.Errorf("expected insert args, got %d", len(args))
-	}
-
-	c.store.mu.Lock()
-	defer c.store.mu.Unlock()
-
-	c.store.nextID++
-	attempt := model.AISolveAttempt{
-		BaseModel: model.BaseModel{
-			ID:        uint(c.store.nextID),
-			CreatedAt: asTime(args[0]),
-			UpdatedAt: asTime(args[1]),
-		},
-		AISolveRunID: asUint(args[2]),
-		AttemptNo:    asInt(args[3]),
-		Stage:        asString(args[4]),
-	}
-	c.store.attempts = append(c.store.attempts, attempt)
-
-	return attemptResult(c.store.nextID), nil
 }
 
 func (c *attemptConn) query(query string, args []driver.Value) (driver.Rows, error) {
-	if !strings.Contains(strings.ToLower(query), "from `ai_solve_attempts`") {
-		return &attemptRows{}, nil
-	}
-	if len(args) == 0 {
-		return nil, fmt.Errorf("expected run id argument")
-	}
+	normalized := normalizeSQL(query)
 
-	runID := asUint(args[0])
-	c.store.mu.Lock()
-	defer c.store.mu.Unlock()
-
-	filtered := make([]model.AISolveAttempt, 0, len(c.store.attempts))
-	for _, attempt := range c.store.attempts {
-		if attempt.AISolveRunID == runID {
-			filtered = append(filtered, attempt)
+	switch {
+	case normalized == "select database()":
+		return &attemptRows{
+			columns: []string{"DATABASE()"},
+			values:  [][]driver.Value{{"test"}},
+		}, nil
+	case strings.Contains(normalized, "from information_schema.schemata"):
+		return &attemptRows{
+			columns: []string{"SCHEMA_NAME"},
+			values:  [][]driver.Value{{"test"}},
+		}, nil
+	case strings.Contains(normalized, "from information_schema.tables"):
+		return &attemptRows{columns: []string{"TABLE_NAME"}}, nil
+	case strings.Contains(normalized, "from `ai_solve_attempts`"):
+		if len(args) == 0 {
+			return nil, fmt.Errorf("expected run id argument")
 		}
-	}
-	sort.Slice(filtered, func(i, j int) bool {
-		if filtered[i].AttemptNo == filtered[j].AttemptNo {
-			return filtered[i].ID < filtered[j].ID
-		}
-		return filtered[i].AttemptNo < filtered[j].AttemptNo
-	})
 
-	return newAttemptRows(filtered), nil
+		runID := asUint(args[0])
+		c.store.mu.Lock()
+		defer c.store.mu.Unlock()
+
+		filtered := make([]model.AISolveAttempt, 0, len(c.store.attempts))
+		for _, attempt := range c.store.attempts {
+			if attempt.AISolveRunID == runID {
+				filtered = append(filtered, attempt)
+			}
+		}
+		sort.Slice(filtered, func(i, j int) bool {
+			if filtered[i].AttemptNo == filtered[j].AttemptNo {
+				return filtered[i].ID < filtered[j].ID
+			}
+			return filtered[i].AttemptNo < filtered[j].AttemptNo
+		})
+
+		return newAttemptRows(filtered), nil
+	default:
+		return nil, fmt.Errorf("unexpected query statement: %s", query)
+	}
+}
+
+func normalizeSQL(query string) string {
+	return strings.Join(strings.Fields(strings.ToLower(query)), " ")
 }
 
 type attemptResult int64
