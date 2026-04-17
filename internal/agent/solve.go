@@ -15,6 +15,7 @@ const (
 	DirectCodegenAgentName       = "direct_codegen"
 	DirectCodegenRepairAgentName = "direct_codegen_repair"
 	AnalyzeThenCodegenAgentName  = "analyze_then_codegen"
+	AdaptiveRepairV1AgentName    = "adaptive_repair_v1"
 )
 
 var ErrUnknownSolveAgent = errors.New("unknown solve agent")
@@ -51,6 +52,8 @@ func ResolveSolveAgentName(name string) (string, error) {
 		return DirectCodegenRepairAgentName, nil
 	case AnalyzeThenCodegenAgentName:
 		return AnalyzeThenCodegenAgentName, nil
+	case AdaptiveRepairV1AgentName:
+		return AdaptiveRepairV1AgentName, nil
 	default:
 		return "", ErrUnknownSolveAgent
 	}
@@ -75,6 +78,8 @@ func ResolveSolveStrategy(name string) (SolveStrategy, error) {
 		return directCodegenRepairStrategy{}, nil
 	case AnalyzeThenCodegenAgentName:
 		return analyzeThenCodegenStrategy{}, nil
+	case AdaptiveRepairV1AgentName:
+		return adaptiveRepairStrategy{}, nil
 	default:
 		return directCodegenStrategy{}, nil
 	}
