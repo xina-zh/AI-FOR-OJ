@@ -20,9 +20,10 @@ const (
 var ErrUnknownSolveAgent = errors.New("unknown solve agent")
 
 type SolveInput struct {
-	Problem    *model.Problem
-	Model      string
-	PromptName string
+	Problem        *model.Problem
+	Model          string
+	PromptName     string
+	JudgeSubmitter JudgeSubmitter
 }
 
 type SolveOutput struct {

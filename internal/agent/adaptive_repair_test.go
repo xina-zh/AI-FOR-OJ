@@ -2,9 +2,11 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"ai-for-oj/internal/llm"
+	"ai-for-oj/internal/model"
 )
 
 func TestClassifyFailure(t *testing.T) {
@@ -237,5 +239,254 @@ func TestRepairPlanner(t *testing.T) {
 				t.Fatalf("planner.Next(...) = %+v, want stage %q", got, tt.wantStage)
 			}
 		})
+	}
+}
+
+func TestAdaptiveRepairCoordinatorStopsAfterAC(t *testing.T) {
+	client := &fakeSolveLLMClient{
+		responses: []llm.GenerateResponse{
+			{
+				Model:        "solver-model",
+				Content:      "```cpp\nint main() { return 0; }\n```",
+				InputTokens:  11,
+				OutputTokens: 7,
+			},
+		},
+	}
+	submitter := &fakeAdaptiveRepairJudgeSubmitter{
+		outputs: []*JudgeFeedback{
+			{
+				Verdict:     "AC",
+				PassedCount: 3,
+				TotalCount:  3,
+			},
+		},
+	}
+	coord := NewAdaptiveRepairCoordinator(3)
+
+	got, err := coord.Execute(context.Background(), client, SolveInput{
+		Problem:        adaptiveRepairTestProblem(),
+		Model:          "default-model",
+		PromptName:     "default",
+		JudgeSubmitter: submitter,
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if got.AttemptCount != 1 {
+		t.Fatalf("AttemptCount = %d, want 1", got.AttemptCount)
+	}
+	if len(got.StrategyPath) != 0 {
+		t.Fatalf("StrategyPath = %+v, want empty", got.StrategyPath)
+	}
+	if len(got.Attempts) != 1 {
+		t.Fatalf("Attempts length = %d, want 1", len(got.Attempts))
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("LLM request count = %d, want 1", len(client.requests))
+	}
+	if len(submitter.submissions) != 1 {
+		t.Fatalf("judge submission count = %d, want 1", len(submitter.submissions))
+	}
+}
+
+func TestAdaptiveRepairCoordinatorRoutesVerdictsToRepairStages(t *testing.T) {
+	tests := []struct {
+		name      string
+		verdict   string
+		wantStage string
+		wantMark  string
+	}{
+		{
+			name:      "wa verdict uses wa analysis repair",
+			verdict:   "WA",
+			wantStage: RepairStageWAAnalysisRepair,
+			wantMark:  "PROMPT_TEMPLATE: repair_wa",
+		},
+		{
+			name:      "re verdict uses safety repair",
+			verdict:   "RE",
+			wantStage: RepairStageRESafetyRepair,
+			wantMark:  "PROMPT_TEMPLATE: repair_re",
+		},
+		{
+			name:      "tle verdict uses complexity rewrite",
+			verdict:   "TLE",
+			wantStage: RepairStageTLEComplexityRewrite,
+			wantMark:  "PROMPT_TEMPLATE: repair_tle",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &fakeSolveLLMClient{
+				responses: []llm.GenerateResponse{
+					{
+						Model:        "solver-model",
+						Content:      "```cpp\nint main() { return 1; }\n```",
+						InputTokens:  11,
+						OutputTokens: 7,
+					},
+					{
+						Model:        "solver-model",
+						Content:      "```cpp\nint main() { return 0; }\n```",
+						InputTokens:  13,
+						OutputTokens: 9,
+					},
+				},
+			}
+			submitter := &fakeAdaptiveRepairJudgeSubmitter{
+				outputs: []*JudgeFeedback{
+					{
+						Verdict:     tt.verdict,
+						PassedCount: 1,
+						TotalCount:  3,
+					},
+					{
+						Verdict:     "AC",
+						PassedCount: 3,
+						TotalCount:  3,
+					},
+				},
+			}
+			coord := NewAdaptiveRepairCoordinator(3)
+
+			got, err := coord.Execute(context.Background(), client, SolveInput{
+				Problem:        adaptiveRepairTestProblem(),
+				Model:          "default-model",
+				PromptName:     "default",
+				JudgeSubmitter: submitter,
+			})
+			if err != nil {
+				t.Fatalf("Execute returned error: %v", err)
+			}
+			if got.AttemptCount != 2 {
+				t.Fatalf("AttemptCount = %d, want 2", got.AttemptCount)
+			}
+			if len(got.StrategyPath) != 1 || got.StrategyPath[0] != tt.wantStage {
+				t.Fatalf("StrategyPath = %+v, want [%s]", got.StrategyPath, tt.wantStage)
+			}
+			if len(got.Attempts) != 2 {
+				t.Fatalf("Attempts length = %d, want 2", len(got.Attempts))
+			}
+			if got.Attempts[1].Stage != tt.wantStage {
+				t.Fatalf("second attempt stage = %q, want %q", got.Attempts[1].Stage, tt.wantStage)
+			}
+			if !strings.Contains(client.requests[1].Prompt, tt.wantMark) {
+				t.Fatalf("repair prompt = %q, want marker %q", client.requests[1].Prompt, tt.wantMark)
+			}
+		})
+	}
+}
+
+func TestAdaptiveRepairCoordinatorAccumulatesAttemptMetadata(t *testing.T) {
+	client := &fakeSolveLLMClient{
+		responses: []llm.GenerateResponse{
+			{
+				Model:        "solver-model",
+				Content:      "```cpp\nint main() { return 1; }\n```",
+				InputTokens:  10,
+				OutputTokens: 5,
+			},
+			{
+				Model:        "solver-model",
+				Content:      "```cpp\nint main() { return 2; }\n```",
+				InputTokens:  11,
+				OutputTokens: 6,
+			},
+			{
+				Model:        "solver-model",
+				Content:      "```cpp\nint main() { return 3; }\n```",
+				InputTokens:  12,
+				OutputTokens: 7,
+			},
+			{
+				Model:        "solver-model",
+				Content:      "```cpp\nint main() { return 0; }\n```",
+				InputTokens:  13,
+				OutputTokens: 8,
+			},
+		},
+	}
+	submitter := &fakeAdaptiveRepairJudgeSubmitter{
+		outputs: []*JudgeFeedback{
+			{Verdict: "WA", PassedCount: 1, TotalCount: 3},
+			{Verdict: "RE", PassedCount: 1, TotalCount: 3},
+			{Verdict: "TLE", PassedCount: 1, TotalCount: 3},
+			{Verdict: "AC", PassedCount: 3, TotalCount: 3},
+		},
+	}
+	coord := NewAdaptiveRepairCoordinator(4)
+
+	got, err := coord.Execute(context.Background(), client, SolveInput{
+		Problem:        adaptiveRepairTestProblem(),
+		Model:          "default-model",
+		PromptName:     "default",
+		JudgeSubmitter: submitter,
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if got.AttemptCount != 4 {
+		t.Fatalf("AttemptCount = %d, want 4", got.AttemptCount)
+	}
+	if len(got.StrategyPath) != 3 {
+		t.Fatalf("StrategyPath length = %d, want 3", len(got.StrategyPath))
+	}
+	wantPath := []string{
+		RepairStageWAAnalysisRepair,
+		RepairStageRESafetyRepair,
+		RepairStageTLEComplexityRewrite,
+	}
+	for i, want := range wantPath {
+		if got.StrategyPath[i] != want {
+			t.Fatalf("StrategyPath[%d] = %q, want %q", i, got.StrategyPath[i], want)
+		}
+	}
+	if len(got.Attempts) != 4 {
+		t.Fatalf("Attempts length = %d, want 4", len(got.Attempts))
+	}
+	for i, want := range append([]string{"initial_solve"}, wantPath...) {
+		if got.Attempts[i].Stage != want {
+			t.Fatalf("Attempts[%d].Stage = %q, want %q", i, got.Attempts[i].Stage, want)
+		}
+	}
+	if got.Attempts[0].FailureType != FailureTypeWrongAnswer {
+		t.Fatalf("Attempts[0].FailureType = %q, want %q", got.Attempts[0].FailureType, FailureTypeWrongAnswer)
+	}
+	if got.Attempts[1].FailureType != FailureTypeRuntimeError {
+		t.Fatalf("Attempts[1].FailureType = %q, want %q", got.Attempts[1].FailureType, FailureTypeRuntimeError)
+	}
+	if got.Attempts[2].FailureType != FailureTypeTimeLimit {
+		t.Fatalf("Attempts[2].FailureType = %q, want %q", got.Attempts[2].FailureType, FailureTypeTimeLimit)
+	}
+}
+
+type fakeAdaptiveRepairJudgeSubmitter struct {
+	submissions []string
+	outputs     []*JudgeFeedback
+	errs        []error
+}
+
+func (s *fakeAdaptiveRepairJudgeSubmitter) Submit(_ context.Context, sourceCode string) (*JudgeFeedback, error) {
+	s.submissions = append(s.submissions, sourceCode)
+	index := len(s.submissions) - 1
+	if index < len(s.errs) && s.errs[index] != nil {
+		return nil, s.errs[index]
+	}
+	if index < len(s.outputs) && s.outputs[index] != nil {
+		return s.outputs[index], nil
+	}
+	return &JudgeFeedback{Verdict: "AC"}, nil
+}
+
+func adaptiveRepairTestProblem() *model.Problem {
+	return &model.Problem{
+		Title:       "Echo",
+		Description: "echo input",
+		InputSpec:   "one line",
+		OutputSpec:  "same line",
+		Samples:     "[]",
 	}
 }
