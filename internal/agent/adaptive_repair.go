@@ -19,7 +19,7 @@ func (adaptiveRepairStrategy) Execute(ctx context.Context, client llm.Client, in
 		return output, err
 	}
 
-	result, err := NewAdaptiveRepairCoordinator(3).Execute(ctx, client, input)
+	result, err := NewAdaptiveRepairCoordinator(DefaultAdaptiveRepairMaxAttempts).Execute(ctx, client, input)
 	if err != nil {
 		return result.SolveOutput, err
 	}

@@ -709,6 +709,7 @@ func TestAISolveServiceSolveAdaptiveRepairUsesMultipleAttempts(t *testing.T) {
 			{Model: "adaptive-model", Content: "```cpp\nint main(){return 1;}\n```", InputTokens: 11, OutputTokens: 7},
 			{Model: "adaptive-model", Content: "```cpp\nint main(){return 2;}\n```", InputTokens: 13, OutputTokens: 9},
 			{Model: "adaptive-model", Content: "```cpp\nint main(){return 3;}\n```", InputTokens: 17, OutputTokens: 11},
+			{Model: "adaptive-model", Content: "```cpp\nint main(){return 0;}\n```", InputTokens: 19, OutputTokens: 13},
 		},
 	}
 	judgeSubmitter := &fakeJudgeSubmitter{
@@ -742,6 +743,14 @@ func TestAISolveServiceSolveAdaptiveRepairUsesMultipleAttempts(t *testing.T) {
 				TotalCount:   3,
 				TimedOut:     true,
 			},
+			{
+				SubmissionID: 34,
+				ProblemID:    1,
+				SourceType:   model.SourceTypeAI,
+				Verdict:      "AC",
+				PassedCount:  3,
+				TotalCount:   3,
+			},
 		},
 	}
 	runRepo := &fakeAISolveRunRepository{}
@@ -771,22 +780,22 @@ func TestAISolveServiceSolveAdaptiveRepairUsesMultipleAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("solve returned error: %v", err)
 	}
-	if len(llmClient.requests) != 3 {
-		t.Fatalf("expected adaptive repair to make three llm calls, got %d", len(llmClient.requests))
+	if len(llmClient.requests) != 4 {
+		t.Fatalf("expected adaptive repair to make four llm calls, got %d", len(llmClient.requests))
 	}
-	if len(judgeSubmitter.inputs) != 3 {
-		t.Fatalf("expected adaptive repair to submit three judged attempts, got %d", len(judgeSubmitter.inputs))
+	if len(judgeSubmitter.inputs) != 4 {
+		t.Fatalf("expected adaptive repair to submit four judged attempts, got %d", len(judgeSubmitter.inputs))
 	}
-	if len(attemptRepo.created) != 3 {
+	if len(attemptRepo.created) != 4 {
 		t.Fatalf("expected adaptive repair attempts to be persisted, got %d", len(attemptRepo.created))
 	}
-	if output.Verdict != "TLE" || output.SubmissionID != 33 {
-		t.Fatalf("expected final output to reflect third attempt, got %+v", output)
+	if output.Verdict != "AC" || output.SubmissionID != 34 {
+		t.Fatalf("expected final output to reflect fourth attempt, got %+v", output)
 	}
 	if len(runRepo.updated) != 1 {
 		t.Fatalf("expected one final run update, got %+v", runRepo.updated)
 	}
-	if runRepo.updated[0].AttemptCount != 3 {
+	if runRepo.updated[0].AttemptCount != 4 {
 		t.Fatalf("expected attempt count to be persisted, got %+v", runRepo.updated[0])
 	}
 	if runRepo.updated[0].FailureType != string(agent.FailureTypeTimeLimit) {
@@ -795,6 +804,7 @@ func TestAISolveServiceSolveAdaptiveRepairUsesMultipleAttempts(t *testing.T) {
 	if runRepo.updated[0].StrategyPath != strings.Join([]string{
 		agent.RepairStageWAAnalysisRepair,
 		agent.RepairStageRESafetyRepair,
+		agent.RepairStageTLEComplexityRewrite,
 	}, ",") {
 		t.Fatalf("expected strategy path to be persisted, got %+v", runRepo.updated[0])
 	}
@@ -802,6 +812,7 @@ func TestAISolveServiceSolveAdaptiveRepairUsesMultipleAttempts(t *testing.T) {
 		"",
 		agent.RepairStageWAAnalysisRepair,
 		strings.Join([]string{agent.RepairStageWAAnalysisRepair, agent.RepairStageRESafetyRepair}, ","),
+		strings.Join([]string{agent.RepairStageWAAnalysisRepair, agent.RepairStageRESafetyRepair, agent.RepairStageTLEComplexityRewrite}, ","),
 	}
 	if len(attemptRepo.created) != len(wantAttemptPaths) {
 		t.Fatalf("expected %d persisted attempts, got %+v", len(wantAttemptPaths), attemptRepo.created)
@@ -811,11 +822,11 @@ func TestAISolveServiceSolveAdaptiveRepairUsesMultipleAttempts(t *testing.T) {
 			t.Fatalf("attempt %d StrategyPath = %q, want %q", i+1, attemptRepo.created[i].StrategyPath, want)
 		}
 	}
-	if attemptRepo.created[0].AttemptNo != 1 || attemptRepo.created[2].AttemptNo != 3 {
+	if attemptRepo.created[0].AttemptNo != 1 || attemptRepo.created[3].AttemptNo != 4 {
 		t.Fatalf("expected attempts to be persisted in order, got %+v", attemptRepo.created)
 	}
 	if attemptRepo.created[2].FailureType != string(agent.FailureTypeTimeLimit) {
-		t.Fatalf("expected final attempt failure type to be persisted, got %+v", attemptRepo.created[2])
+		t.Fatalf("expected third attempt failure type to be persisted, got %+v", attemptRepo.created[2])
 	}
 }
 
@@ -885,6 +896,68 @@ func TestAISolveServiceSolveAdaptiveRepairPreservesFailureTypeOnAC(t *testing.T)
 	}
 	if runRepo.updated[0].FailureType != string(agent.FailureTypeWrongAnswer) {
 		t.Fatalf("expected AC run to preserve repair-driving failure type, got %+v", runRepo.updated[0])
+	}
+}
+
+func TestAISolveServiceSolveAdaptiveRepairUsesDefaultFourAttemptBudget(t *testing.T) {
+	llmClient := &fakeLLMClient{
+		responses: []llm.GenerateResponse{
+			{Model: "adaptive-model", Content: "```cpp\nint main(){return 1;}\n```", InputTokens: 11, OutputTokens: 7},
+			{Model: "adaptive-model", Content: "```cpp\nint main(){return 2;}\n```", InputTokens: 13, OutputTokens: 9},
+			{Model: "adaptive-model", Content: "```cpp\nint main(){return 3;}\n```", InputTokens: 17, OutputTokens: 11},
+			{Model: "adaptive-model", Content: "```cpp\nint main(){return 0;}\n```", InputTokens: 19, OutputTokens: 13},
+		},
+	}
+	judgeSubmitter := &fakeJudgeSubmitter{
+		outputs: []*JudgeSubmissionOutput{
+			{SubmissionID: 51, ProblemID: 1, SourceType: model.SourceTypeAI, Verdict: "WA", ErrorMessage: "wrong answer", PassedCount: 0, TotalCount: 3},
+			{SubmissionID: 52, ProblemID: 1, SourceType: model.SourceTypeAI, Verdict: "WA", ErrorMessage: "still wrong", PassedCount: 1, TotalCount: 3},
+			{SubmissionID: 53, ProblemID: 1, SourceType: model.SourceTypeAI, Verdict: "WA", ErrorMessage: "still wrong again", PassedCount: 2, TotalCount: 3},
+			{SubmissionID: 54, ProblemID: 1, SourceType: model.SourceTypeAI, Verdict: "AC", PassedCount: 3, TotalCount: 3},
+		},
+	}
+	runRepo := &fakeAISolveRunRepository{}
+	attemptRepo := &fakeAISolveAttemptRepository{}
+	service := NewAISolveService(
+		fakeProblemRepository{problem: adaptiveServiceTestProblem()},
+		runRepo,
+		llmClient,
+		judgeSubmitter,
+		"default-model",
+		attemptRepo,
+	)
+
+	output, err := service.Solve(context.Background(), AISolveInput{
+		ProblemID: 1,
+		AgentName: agent.AdaptiveRepairV1AgentName,
+	})
+	if err != nil {
+		t.Fatalf("solve returned error: %v", err)
+	}
+	if len(llmClient.requests) != 4 {
+		t.Fatalf("expected adaptive repair to make four llm calls, got %d", len(llmClient.requests))
+	}
+	if len(judgeSubmitter.inputs) != 4 {
+		t.Fatalf("expected adaptive repair to submit four judged attempts, got %d", len(judgeSubmitter.inputs))
+	}
+	if len(attemptRepo.created) != 4 {
+		t.Fatalf("expected adaptive repair attempts to be persisted, got %d", len(attemptRepo.created))
+	}
+	if output.Verdict != "AC" || output.SubmissionID != 54 {
+		t.Fatalf("expected final output to reflect fourth attempt, got %+v", output)
+	}
+	if len(runRepo.updated) != 1 {
+		t.Fatalf("expected one final run update, got %+v", runRepo.updated)
+	}
+	if runRepo.updated[0].AttemptCount != 4 {
+		t.Fatalf("expected attempt count 4 to be persisted, got %+v", runRepo.updated[0])
+	}
+	if runRepo.updated[0].StrategyPath != strings.Join([]string{
+		agent.RepairStageWAAnalysisRepair,
+		agent.RepairStageWAAnalysisRepair,
+		agent.RepairStageFallbackRewrite,
+	}, ",") {
+		t.Fatalf("expected strategy path to include second WA repair before fallback, got %+v", runRepo.updated[0])
 	}
 }
 
@@ -1113,5 +1186,16 @@ func TestAISolveServicePersistAdaptiveAttemptsUsesBackgroundContextAndCoordinato
 		if attemptRepo.created[i].StrategyPath != want {
 			t.Fatalf("attempt %d StrategyPath = %q, want %q", i+1, attemptRepo.created[i].StrategyPath, want)
 		}
+	}
+}
+
+func adaptiveServiceTestProblem() *model.Problem {
+	return &model.Problem{
+		BaseModel:   model.BaseModel{ID: 1},
+		Title:       "Adaptive Echo",
+		Description: "echo with repair",
+		InputSpec:   "line",
+		OutputSpec:  "line",
+		Samples:     "[]",
 	}
 }

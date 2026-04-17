@@ -5,6 +5,7 @@ const (
 	RepairStageRESafetyRepair       = "re_safety_repair"
 	RepairStageTLEComplexityRewrite = "tle_complexity_rewrite"
 	RepairStageFallbackRewrite      = "fallback_rewrite"
+	maxWATargetedRepairs            = 2
 )
 
 type RepairPlanInput struct {
@@ -45,6 +46,13 @@ func (p RepairPlanner) Next(input RepairPlanInput) RepairPlanDecision {
 		stage = RepairStageFallbackRewrite
 	}
 
+	if stage == RepairStageWAAnalysisRepair {
+		if countStage(input.PreviousStages, stage) < maxWATargetedRepairs {
+			return RepairPlanDecision{Stage: stage}
+		}
+		return RepairPlanDecision{Stage: RepairStageFallbackRewrite}
+	}
+
 	if !containsStage(input.PreviousStages, stage) {
 		return RepairPlanDecision{Stage: stage}
 	}
@@ -76,4 +84,14 @@ func containsStage(stages []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func countStage(stages []string, target string) int {
+	count := 0
+	for _, stage := range stages {
+		if stage == target {
+			count++
+		}
+	}
+	return count
 }

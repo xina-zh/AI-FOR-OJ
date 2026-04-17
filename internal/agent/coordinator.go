@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	adaptiveRepairInitialStage  = "initial_solve"
-	defaultAdaptiveRepairBudget = 3
+	adaptiveRepairInitialStage       = "initial_solve"
+	DefaultAdaptiveRepairMaxAttempts = 4
 )
 
 type JudgeFeedback struct {
@@ -60,7 +60,7 @@ type AdaptiveRepairCoordinator struct {
 
 func NewAdaptiveRepairCoordinator(maxBudget int) AdaptiveRepairCoordinator {
 	if maxBudget <= 0 {
-		maxBudget = defaultAdaptiveRepairBudget
+		maxBudget = DefaultAdaptiveRepairMaxAttempts
 	}
 	return AdaptiveRepairCoordinator{planner: NewRepairPlanner(maxBudget)}
 }
@@ -77,7 +77,7 @@ func (c AdaptiveRepairCoordinator) Execute(ctx context.Context, client llm.Clien
 
 	planner := c.planner
 	if planner.maxBudget <= 0 {
-		planner = NewRepairPlanner(defaultAdaptiveRepairBudget)
+		planner = NewRepairPlanner(DefaultAdaptiveRepairMaxAttempts)
 	}
 
 	attempts := make([]AdaptiveRepairAttempt, 0, 4)

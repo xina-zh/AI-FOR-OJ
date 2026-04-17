@@ -203,11 +203,11 @@ func TestRepairPlanner(t *testing.T) {
 			wantStage: RepairStageTLEComplexityRewrite,
 		},
 		{
-			name: "targeted stage already used falls back",
+			name: "runtime error targeted stage already used falls back",
 			in: RepairPlanInput{
 				AttemptCount:   2,
-				LastFailure:    FailureTypeWrongAnswer,
-				PreviousStages: []string{RepairStageWAAnalysisRepair},
+				LastFailure:    FailureTypeRuntimeError,
+				PreviousStages: []string{RepairStageRESafetyRepair},
 				MaxBudget:      3,
 			},
 			wantStage: RepairStageFallbackRewrite,
@@ -221,6 +221,56 @@ func TestRepairPlanner(t *testing.T) {
 				MaxBudget:      3,
 			},
 			wantStop: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := planner.Next(tt.in)
+			if got.Stop {
+				if tt.wantStop {
+					return
+				}
+				t.Fatalf("planner.Next(...) stopped early: %+v", got)
+			}
+			if tt.wantStop {
+				t.Fatalf("planner.Next(...) = %+v, want stop", got)
+			}
+			if got.Stage != tt.wantStage {
+				t.Fatalf("planner.Next(...) = %+v, want stage %q", got, tt.wantStage)
+			}
+		})
+	}
+}
+
+func TestRepairPlannerAllowsSecondWATargetedRepairBeforeFallback(t *testing.T) {
+	planner := NewRepairPlanner(DefaultAdaptiveRepairMaxAttempts)
+
+	tests := []struct {
+		name      string
+		in        RepairPlanInput
+		wantStage string
+		wantStop  bool
+	}{
+		{
+			name: "second wa repair is allowed",
+			in: RepairPlanInput{
+				AttemptCount:   2,
+				LastFailure:    FailureTypeWrongAnswer,
+				PreviousStages: []string{RepairStageWAAnalysisRepair},
+				MaxBudget:      DefaultAdaptiveRepairMaxAttempts,
+			},
+			wantStage: RepairStageWAAnalysisRepair,
+		},
+		{
+			name: "third wa decision falls back after two wa repairs",
+			in: RepairPlanInput{
+				AttemptCount:   3,
+				LastFailure:    FailureTypeWrongAnswer,
+				PreviousStages: []string{RepairStageWAAnalysisRepair, RepairStageWAAnalysisRepair},
+				MaxBudget:      DefaultAdaptiveRepairMaxAttempts,
+			},
+			wantStage: RepairStageFallbackRewrite,
 		},
 	}
 

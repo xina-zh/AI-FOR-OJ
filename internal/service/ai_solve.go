@@ -22,7 +22,7 @@ var (
 )
 
 const defaultAISolveExecutionTimeout = 5 * time.Minute
-const maxAISolveAttempts = 3
+const maxLegacyRepairAttempts = 3
 
 type JudgeSubmitter interface {
 	Submit(ctx context.Context, input JudgeSubmissionInput) (*JudgeSubmissionOutput, error)
@@ -277,7 +277,7 @@ func (s *AISolveService) solveLegacyAgent(
 		return s.finishRun(run, output, startedAt, lastJudgeOutput)
 	}
 
-	for attempt := 2; attempt <= maxAISolveAttempts; attempt++ {
+	for attempt := 2; attempt <= maxLegacyRepairAttempts; attempt++ {
 		repairPrompt := prompt.BuildRepairPrompt(problem, resolvedPromptName, code, buildRepairFeedback(lastJudgeOutput))
 		llmStartedAt := time.Now()
 		llmResp, llmErr := s.llmClient.Generate(ctx, llm.GenerateRequest{
@@ -326,7 +326,7 @@ func (s *AISolveService) solveAdaptiveRepair(
 		problemID: problemID,
 	}
 
-	result, err := agent.NewAdaptiveRepairCoordinator(maxAISolveAttempts).Execute(ctx, s.llmClient, agent.SolveInput{
+	result, err := agent.NewAdaptiveRepairCoordinator(agent.DefaultAdaptiveRepairMaxAttempts).Execute(ctx, s.llmClient, agent.SolveInput{
 		Problem:        problem,
 		Model:          resolvedModel,
 		PromptName:     resolvedPromptName,
