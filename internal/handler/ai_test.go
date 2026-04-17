@@ -121,127 +121,55 @@ func TestAIHandlerGetRunIncludesAttemptDetails(t *testing.T) {
 		t.Fatalf("expected %d, got %d: %s", http.StatusOK, resp.Code, resp.Body.String())
 	}
 
-	var got map[string]any
+	var got aiSolveRunResponse
 	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
 
-	attemptsValue, ok := got["attempts"].([]any)
+	if got.AttemptCount != 3 || got.FailureType != "time_limit" || got.StrategyPath != "analysis,repair" {
+		t.Fatalf("expected summary attempt metadata in response, got %+v", got)
+	}
+	if len(got.Attempts) != 2 {
+		t.Fatalf("expected attempts in response, got %+v", got.Attempts)
+	}
+
+	first := got.Attempts[0]
+	if first.AttemptNo != 1 || first.Stage != "analysis" || first.Verdict != "WA" || first.FailureType != "wrong_answer" || first.RepairReason != "clarify the invariant" {
+		t.Fatalf("unexpected first attempt payload: %+v", first)
+	}
+	if first.StrategyPath != "analysis" || first.PromptPreview != "first prompt" || first.ExtractedCode != "code1" || first.JudgePassedCount != 1 || first.JudgeTotalCount != 3 {
+		t.Fatalf("unexpected first attempt metadata: %+v", first)
+	}
+	if !first.TimedOut || first.ErrorMessage != "analysis failed" || first.TokenInput != 10 || first.TokenOutput != 20 || first.LLMLatencyMS != 30 {
+		t.Fatalf("unexpected first attempt timing/cost metadata: %+v", first)
+	}
+
+	second := got.Attempts[1]
+	if second.AttemptNo != 2 || second.Stage != "repair" || second.Verdict != "AC" || second.FailureType != "time_limit" || second.RepairReason != "tighten edge cases" {
+		t.Fatalf("unexpected second attempt payload: %+v", second)
+	}
+	if second.StrategyPath != "repair" || second.PromptPreview != "second prompt" || second.ExtractedCode != "code2" || second.JudgePassedCount != 2 || second.JudgeTotalCount != 3 {
+		t.Fatalf("unexpected second attempt metadata: %+v", second)
+	}
+	if !second.TimedOut || second.ErrorMessage != "timeout" || second.TokenInput != 11 || second.TokenOutput != 21 || second.LLMLatencyMS != 31 {
+		t.Fatalf("unexpected second attempt timing/cost metadata: %+v", second)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("unmarshal raw response: %v", err)
+	}
+	attempts, ok := raw["attempts"].([]any)
+	if !ok || len(attempts) == 0 {
+		t.Fatalf("expected raw attempts array, got %+v", raw["attempts"])
+	}
+	firstAttempt, ok := attempts[0].(map[string]any)
 	if !ok {
-		t.Fatalf("expected attempts array in response, got %+v", got["attempts"])
+		t.Fatalf("expected raw first attempt object, got %+v", attempts[0])
 	}
-	if len(attemptsValue) != 2 {
-		t.Fatalf("expected attempts in response, got %+v", attemptsValue)
-	}
-
-	attempt0, ok := attemptsValue[0].(map[string]any)
-	if !ok {
-		t.Fatalf("expected first attempt object, got %+v", attemptsValue[0])
-	}
-
-	requiredKeys := []string{
-		"attempt_no",
-		"stage",
-		"verdict",
-		"failure_type",
-		"repair_reason",
-		"strategy_path",
-		"prompt_preview",
-		"extracted_code",
-		"judge_passed_count",
-		"judge_total_count",
-		"timed_out",
-		"error_message",
-		"token_input",
-		"token_output",
-		"llm_latency_ms",
-	}
-	for _, key := range requiredKeys {
-		if _, ok := attempt0[key]; !ok {
-			t.Fatalf("missing %q in attempt payload: %+v", key, attempt0)
-		}
-	}
-
 	for _, key := range []string{"raw_response", "compile_stderr", "run_stdout", "run_stderr"} {
-		if _, ok := attempt0[key]; ok {
-			t.Fatalf("unexpected %q exposed in attempt payload: %+v", key, attempt0)
+		if _, ok := firstAttempt[key]; ok {
+			t.Fatalf("unexpected %q exposed in attempt payload: %+v", key, firstAttempt)
 		}
-	}
-
-	expectString := func(payload map[string]any, key, want string) {
-		t.Helper()
-		gotValue, ok := payload[key].(string)
-		if !ok {
-			t.Fatalf("expected %q to be a string, got %#v", key, payload[key])
-		}
-		if gotValue != want {
-			t.Fatalf("expected %q to be %q, got %q", key, want, gotValue)
-		}
-	}
-	expectInt := func(payload map[string]any, key string, want int) {
-		t.Helper()
-		gotValue, ok := payload[key].(float64)
-		if !ok {
-			t.Fatalf("expected %q to be a number, got %#v", key, payload[key])
-		}
-		if int(gotValue) != want {
-			t.Fatalf("expected %q to be %d, got %v", key, want, gotValue)
-		}
-	}
-	expectBool := func(payload map[string]any, key string, want bool) {
-		t.Helper()
-		gotValue, ok := payload[key].(bool)
-		if !ok {
-			t.Fatalf("expected %q to be a bool, got %#v", key, payload[key])
-		}
-		if gotValue != want {
-			t.Fatalf("expected %q to be %v, got %v", key, want, gotValue)
-		}
-	}
-
-	expectInt(attempt0, "attempt_no", 1)
-	expectString(attempt0, "stage", "analysis")
-	expectString(attempt0, "verdict", "WA")
-	expectString(attempt0, "failure_type", "wrong_answer")
-	expectString(attempt0, "repair_reason", "clarify the invariant")
-	expectString(attempt0, "strategy_path", "analysis")
-	expectString(attempt0, "prompt_preview", "first prompt")
-	expectString(attempt0, "extracted_code", "code1")
-	expectInt(attempt0, "judge_passed_count", 1)
-	expectInt(attempt0, "judge_total_count", 3)
-	expectBool(attempt0, "timed_out", true)
-	expectString(attempt0, "error_message", "analysis failed")
-	expectInt(attempt0, "token_input", 10)
-	expectInt(attempt0, "token_output", 20)
-	expectInt(attempt0, "llm_latency_ms", 30)
-
-	attempt1, ok := attemptsValue[1].(map[string]any)
-	if !ok {
-		t.Fatalf("expected second attempt object, got %+v", attemptsValue[1])
-	}
-	expectInt(attempt1, "attempt_no", 2)
-	expectString(attempt1, "stage", "repair")
-	expectString(attempt1, "verdict", "AC")
-	expectString(attempt1, "failure_type", "time_limit")
-	expectString(attempt1, "repair_reason", "tighten edge cases")
-	expectString(attempt1, "strategy_path", "repair")
-	expectString(attempt1, "prompt_preview", "second prompt")
-	expectString(attempt1, "extracted_code", "code2")
-	expectInt(attempt1, "judge_passed_count", 2)
-	expectInt(attempt1, "judge_total_count", 3)
-	expectBool(attempt1, "timed_out", true)
-	expectString(attempt1, "error_message", "timeout")
-	expectInt(attempt1, "token_input", 11)
-	expectInt(attempt1, "token_output", 21)
-	expectInt(attempt1, "llm_latency_ms", 31)
-
-	if gotSummaryAttemptCount, ok := got["attempt_count"].(float64); !ok || int(gotSummaryAttemptCount) != 3 {
-		t.Fatalf("expected attempt_count=3, got %+v", got["attempt_count"])
-	}
-	if gotFailureType, ok := got["failure_type"].(string); !ok || gotFailureType != "time_limit" {
-		t.Fatalf("expected failure_type=time_limit, got %+v", got["failure_type"])
-	}
-	if gotStrategyPath, ok := got["strategy_path"].(string); !ok || gotStrategyPath != "analysis,repair" {
-		t.Fatalf("expected strategy_path=analysis,repair, got %+v", got["strategy_path"])
 	}
 }
