@@ -125,11 +125,21 @@ func (h *AIHandler) GetRun(c *gin.Context) {
 			attempts := make([]dto.AISolveAttemptResponse, 0, len(run.Attempts))
 			for _, attempt := range run.Attempts {
 				attempts = append(attempts, dto.AISolveAttemptResponse{
-					AttemptNo:    attempt.AttemptNo,
-					Stage:        attempt.Stage,
-					Verdict:      attempt.JudgeVerdict,
-					FailureType:  attempt.FailureType,
-					RepairReason: attempt.RepairReason,
+					AttemptNo:        attempt.AttemptNo,
+					Stage:            attempt.Stage,
+					Verdict:          attempt.JudgeVerdict,
+					FailureType:      attempt.FailureType,
+					RepairReason:     attempt.RepairReason,
+					StrategyPath:     attempt.StrategyPath,
+					PromptPreview:    attempt.PromptPreview,
+					ExtractedCode:    attempt.ExtractedCode,
+					JudgePassedCount: attempt.JudgePassedCount,
+					JudgeTotalCount:  attempt.JudgeTotalCount,
+					TimedOut:         attempt.TimedOut,
+					ErrorMessage:     attempt.ErrorMessage,
+					TokenInput:       attempt.TokenInput,
+					TokenOutput:      attempt.TokenOutput,
+					LLMLatencyMS:     attempt.LLMLatencyMS,
 				})
 			}
 			return attempts
