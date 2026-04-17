@@ -290,6 +290,37 @@ func TestAdaptiveRepairCoordinatorStopsAfterAC(t *testing.T) {
 	}
 }
 
+func TestAdaptiveRepairStrategyFallsBackWithoutJudgeSubmitter(t *testing.T) {
+	client := &fakeSolveLLMClient{
+		responses: []llm.GenerateResponse{
+			{
+				Model:        "solver-model",
+				Content:      "```cpp\nint main() { return 0; }\n```",
+				InputTokens:  11,
+				OutputTokens: 7,
+			},
+		},
+	}
+
+	got, err := adaptiveRepairStrategy{}.Execute(context.Background(), client, SolveInput{
+		Problem:    adaptiveRepairTestProblem(),
+		Model:      "default-model",
+		PromptName: "default",
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if got.AgentName != AdaptiveRepairV1AgentName {
+		t.Fatalf("AgentName = %q, want %q", got.AgentName, AdaptiveRepairV1AgentName)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("LLM request count = %d, want 1", len(client.requests))
+	}
+	if !strings.Contains(client.requests[0].Prompt, "PROMPT_TEMPLATE: default") {
+		t.Fatalf("prompt = %q, want single-solve default prompt", client.requests[0].Prompt)
+	}
+}
+
 func TestAdaptiveRepairCoordinatorRoutesVerdictsToRepairStages(t *testing.T) {
 	tests := []struct {
 		name      string
