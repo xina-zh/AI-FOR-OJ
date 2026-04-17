@@ -802,6 +802,75 @@ func TestAISolveServiceSolveAdaptiveRepairUsesMultipleAttempts(t *testing.T) {
 	}
 }
 
+func TestAISolveServiceSolveAdaptiveRepairPreservesFailureTypeOnAC(t *testing.T) {
+	llmClient := &fakeLLMClient{
+		responses: []llm.GenerateResponse{
+			{Model: "adaptive-model", Content: "```cpp\nint main(){return 1;}\n```", InputTokens: 5, OutputTokens: 6},
+			{Model: "adaptive-model", Content: "```cpp\nint main(){return 0;}\n```", InputTokens: 7, OutputTokens: 8},
+		},
+	}
+	judgeSubmitter := &fakeJudgeSubmitter{
+		outputs: []*JudgeSubmissionOutput{
+			{
+				SubmissionID: 41,
+				ProblemID:    1,
+				SourceType:   model.SourceTypeAI,
+				Verdict:      "WA",
+				ErrorMessage: "wrong answer on sample",
+				PassedCount:  0,
+				TotalCount:   2,
+			},
+			{
+				SubmissionID: 42,
+				ProblemID:    1,
+				SourceType:   model.SourceTypeAI,
+				Verdict:      "AC",
+				PassedCount:  2,
+				TotalCount:   2,
+			},
+		},
+	}
+	runRepo := &fakeAISolveRunRepository{}
+	attemptRepo := &fakeAISolveAttemptRepository{}
+	service := NewAISolveService(
+		fakeProblemRepository{
+			problem: &model.Problem{
+				BaseModel:   model.BaseModel{ID: 1},
+				Title:       "Adaptive Echo",
+				Description: "echo with repair",
+				InputSpec:   "line",
+				OutputSpec:  "line",
+				Samples:     "[]",
+			},
+		},
+		runRepo,
+		llmClient,
+		judgeSubmitter,
+		"default-model",
+		attemptRepo,
+	)
+
+	output, err := service.Solve(context.Background(), AISolveInput{
+		ProblemID: 1,
+		AgentName: agent.AdaptiveRepairV1AgentName,
+	})
+	if err != nil {
+		t.Fatalf("solve returned error: %v", err)
+	}
+	if output.Verdict != "AC" || output.SubmissionID != 42 {
+		t.Fatalf("expected final output to reflect accepted repair, got %+v", output)
+	}
+	if len(runRepo.updated) != 1 {
+		t.Fatalf("expected one final run update, got %+v", runRepo.updated)
+	}
+	if runRepo.updated[0].AttemptCount != 2 {
+		t.Fatalf("expected attempt count to be persisted, got %+v", runRepo.updated[0])
+	}
+	if runRepo.updated[0].FailureType != string(agent.FailureTypeWrongAnswer) {
+		t.Fatalf("expected AC run to preserve repair-driving failure type, got %+v", runRepo.updated[0])
+	}
+}
+
 func TestAISolveServiceSolveRepairPromptIncludesCompileFailureFeedback(t *testing.T) {
 	llmClient := &fakeLLMClient{
 		responses: []llm.GenerateResponse{

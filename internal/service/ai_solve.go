@@ -379,7 +379,7 @@ func (s *AISolveService) applyAdaptiveResult(
 	run.RawResponse = result.SolveOutput.RawResponse
 	run.ExtractedCode = extractCPPCode(result.SolveOutput.RawResponse)
 	run.AttemptCount = result.AttemptCount
-	run.FailureType = string(result.FinalFailure)
+	run.FailureType = adaptiveRunFailureType(result, judgeOutput)
 	run.StrategyPath = strings.Join(result.StrategyPath, ",")
 	run.TokenInput = result.SolveOutput.TokenInput
 	run.TokenOutput = result.SolveOutput.TokenOutput
@@ -399,6 +399,30 @@ func (s *AISolveService) applyAdaptiveResult(
 		output.Verdict = judgeOutput.Verdict
 		output.ErrorMessage = judgeOutput.ErrorMessage
 	}
+}
+
+func adaptiveRunFailureType(result agent.AdaptiveRepairResult, judgeOutput *JudgeSubmissionOutput) string {
+	if judgeOutput != nil && strings.EqualFold(strings.TrimSpace(judgeOutput.Verdict), "AC") {
+		if failure := lastMeaningfulAdaptiveFailure(result.Attempts); failure != "" {
+			return failure
+		}
+	}
+
+	if failure := strings.TrimSpace(string(result.FinalFailure)); failure != "" {
+		return failure
+	}
+	return string(agent.FailureTypeUnknown)
+}
+
+func lastMeaningfulAdaptiveFailure(attempts []agent.AdaptiveRepairAttempt) string {
+	for i := len(attempts) - 1; i >= 0; i-- {
+		failure := strings.TrimSpace(string(attempts[i].FailureType))
+		if failure == "" || failure == string(agent.FailureTypeUnknown) {
+			continue
+		}
+		return failure
+	}
+	return ""
 }
 
 func (s *AISolveService) persistAdaptiveAttempts(
