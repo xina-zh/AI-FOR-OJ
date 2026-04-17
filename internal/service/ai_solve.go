@@ -173,7 +173,7 @@ func extractCPPCode(raw string) string {
 	if matches := genericFencePattern.FindStringSubmatch(raw); len(matches) >= 2 {
 		return strings.TrimSpace(matches[1])
 	}
-	return ""
+	return strings.TrimSpace(strings.Trim(raw, "`"))
 }
 
 func truncateForPreview(value string, limit int) string {
@@ -551,7 +551,7 @@ func (a *adaptiveJudgeSubmitterAdapter) Submit(ctx context.Context, sourceCode s
 		return nil, errors.New("judge submitter is required")
 	}
 	sourceCode = strings.TrimSpace(sourceCode)
-	if sourceCode == "" || !looksLikeCPPSource(sourceCode) {
+	if sourceCode == "" {
 		return nil, ErrAISolveCodeNotExtracted
 	}
 
@@ -567,31 +567,6 @@ func (a *adaptiveJudgeSubmitterAdapter) Submit(ctx context.Context, sourceCode s
 
 	a.lastJudge = output
 	return judgeFeedbackFromSubmission(output), nil
-}
-
-func looksLikeCPPSource(sourceCode string) bool {
-	sourceCode = strings.TrimSpace(sourceCode)
-	if sourceCode == "" {
-		return false
-	}
-
-	markers := []string{
-		"#include",
-		"int main",
-		"using namespace",
-		"std::",
-		"cout",
-		"cin",
-		";",
-		"{",
-		"}",
-	}
-	for _, marker := range markers {
-		if strings.Contains(sourceCode, marker) {
-			return true
-		}
-	}
-	return false
 }
 
 func (a *adaptiveJudgeSubmitterAdapter) lastOutput() *JudgeSubmissionOutput {

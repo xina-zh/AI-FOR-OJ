@@ -450,13 +450,15 @@ func TestAISolveServiceSolveReturnsCodeExtractionFailure(t *testing.T) {
 
 func TestAISolveServiceSolveAdaptiveRepairRejectsMissingCPPBeforeJudge(t *testing.T) {
 	runRepo := &fakeAISolveRunRepository{}
+	attemptRepo := &fakeAISolveAttemptRepository{}
 	judgeSubmitter := &fakeJudgeSubmitter{}
 	service := NewAISolveService(
 		fakeProblemRepository{problem: adaptiveServiceTestProblem()},
 		runRepo,
-		&fakeLLMClient{response: llm.GenerateResponse{Model: "adaptive-model", Content: "I cannot solve this problem."}},
+		&fakeLLMClient{response: llm.GenerateResponse{Model: "adaptive-model", Content: "   "}},
 		judgeSubmitter,
 		"default-model",
+		attemptRepo,
 	)
 
 	output, err := service.Solve(context.Background(), AISolveInput{
@@ -475,6 +477,9 @@ func TestAISolveServiceSolveAdaptiveRepairRejectsMissingCPPBeforeJudge(t *testin
 	}
 	if len(runRepo.created) != 1 {
 		t.Fatalf("expected one created run, got %d", len(runRepo.created))
+	}
+	if len(attemptRepo.created) != 1 {
+		t.Fatalf("expected one persisted attempt, got %d", len(attemptRepo.created))
 	}
 	if len(runRepo.updated) != 1 || runRepo.updated[0].Status != model.AISolveRunStatusFailed {
 		t.Fatalf("expected failed run to be persisted, got %+v", runRepo.updated)
