@@ -36,6 +36,9 @@ type ExperimentRunOutput struct {
 	AISolveRunID *uint     `json:"ai_solve_run_id,omitempty"`
 	SubmissionID *uint     `json:"submission_id,omitempty"`
 	AttemptNo    int       `json:"attempt_no"`
+	AttemptCount int       `json:"attempt_count"`
+	StrategyPath string    `json:"strategy_path,omitempty"`
+	FailureType  string    `json:"failure_type,omitempty"`
 	Verdict      string    `json:"verdict,omitempty"`
 	Status       string    `json:"status"`
 	ErrorMessage string    `json:"error_message,omitempty"`
@@ -199,6 +202,14 @@ func toExperimentOutput(experiment *model.Experiment) *ExperimentOutput {
 		Runs:         make([]ExperimentRunOutput, 0, len(experiment.Runs)),
 	}
 	for _, run := range experiment.Runs {
+		var attemptCount int
+		var strategyPath string
+		var failureType string
+		if run.AISolveRun != nil {
+			attemptCount = run.AISolveRun.AttemptCount
+			strategyPath = run.AISolveRun.StrategyPath
+			failureType = run.AISolveRun.FailureType
+		}
 		if run.FinalVerdict != "" {
 			output.VerdictDistribution.Add(run.FinalVerdict)
 		} else if run.Status == ExperimentRunStatusFailed {
@@ -210,6 +221,9 @@ func toExperimentOutput(experiment *model.Experiment) *ExperimentOutput {
 			AISolveRunID: run.AISolveRunID,
 			SubmissionID: run.SubmissionID,
 			AttemptNo:    run.AttemptNo,
+			AttemptCount: attemptCount,
+			StrategyPath: strategyPath,
+			FailureType:  failureType,
 			Verdict:      run.FinalVerdict,
 			Status:       run.Status,
 			ErrorMessage: run.ErrorMessage,

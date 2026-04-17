@@ -20,6 +20,9 @@ type ExperimentRunResponse struct {
 	AISolveRunID *uint     `json:"ai_solve_run_id,omitempty"`
 	SubmissionID *uint     `json:"submission_id,omitempty"`
 	AttemptNo    int       `json:"attempt_no"`
+	AttemptCount int       `json:"attempt_count"`
+	StrategyPath string    `json:"strategy_path,omitempty"`
+	FailureType  string    `json:"failure_type,omitempty"`
 	Verdict      string    `json:"verdict,omitempty"`
 	Status       string    `json:"status"`
 	ErrorMessage string    `json:"error_message,omitempty"`
