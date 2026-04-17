@@ -330,7 +330,7 @@ func (s *AISolveService) solveAdaptiveRepair(
 	})
 
 	s.applyAdaptiveResult(run, output, result, adapter.lastOutput(), startedAt)
-	if persistErr := s.persistAdaptiveAttempts(ctx, run.ID, result.Attempts); persistErr != nil {
+	if persistErr := s.persistAdaptiveAttempts(ctx, run.ID, result.StrategyPath, result.Attempts); persistErr != nil {
 		return s.failRun(ctx, run, output, startedAt, persistErr.Error(), persistErr)
 	}
 	if err != nil {
@@ -426,13 +426,17 @@ func lastMeaningfulAdaptiveFailure(attempts []agent.AdaptiveRepairAttempt) strin
 }
 
 func (s *AISolveService) persistAdaptiveAttempts(
-	ctx context.Context,
+	_ context.Context,
 	runID uint,
+	strategyPath []string,
 	attempts []agent.AdaptiveRepairAttempt,
 ) error {
 	if s.attempts == nil {
 		return nil
 	}
+
+	updateCtx, cancel := terminalPersistenceContext()
+	defer cancel()
 
 	for _, attempt := range attempts {
 		record := &model.AISolveAttempt{
@@ -440,7 +444,7 @@ func (s *AISolveService) persistAdaptiveAttempts(
 			AttemptNo:        attempt.AttemptNo,
 			Stage:            attempt.Stage,
 			FailureType:      string(attempt.FailureType),
-			StrategyPath:     strategyPathForAttempt(attempts, attempt.AttemptNo),
+			StrategyPath:     strategyPathForAttempt(strategyPath, attempt.AttemptNo),
 			PromptPreview:    attempt.PromptPreview,
 			RawResponse:      attempt.RawResponse,
 			ExtractedCode:    extractCPPCode(attempt.RawResponse),
@@ -456,7 +460,7 @@ func (s *AISolveService) persistAdaptiveAttempts(
 			TokenOutput:      attempt.TokenOutput,
 			LLMLatencyMS:     attempt.LLMLatencyMS,
 		}
-		if err := s.attempts.Create(ctx, record); err != nil {
+		if err := s.attempts.Create(updateCtx, record); err != nil {
 			return err
 		}
 	}
@@ -582,22 +586,22 @@ func judgeFeedbackFromSubmission(output *JudgeSubmissionOutput) *agent.JudgeFeed
 	}
 }
 
-func strategyPathForAttempt(attempts []agent.AdaptiveRepairAttempt, attemptNo int) string {
+func strategyPathForAttempt(strategyPath []string, attemptNo int) string {
 	if attemptNo <= 1 {
 		return ""
 	}
 
 	limit := attemptNo - 1
-	if limit > len(attempts)-1 {
-		limit = len(attempts) - 1
+	if limit > len(strategyPath) {
+		limit = len(strategyPath)
 	}
 	if limit <= 0 {
 		return ""
 	}
 
 	stages := make([]string, 0, limit)
-	for i := 0; i < limit && i < len(attempts); i++ {
-		stage := strings.TrimSpace(attempts[i].Stage)
+	for i := 0; i < limit && i < len(strategyPath); i++ {
+		stage := strings.TrimSpace(strategyPath[i])
 		if stage == "" {
 			continue
 		}
@@ -628,10 +632,14 @@ func (s *AISolveService) persistTerminalRun(run *model.AISolveRun) error {
 		return nil
 	}
 
-	updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	updateCtx, cancel := terminalPersistenceContext()
 	defer cancel()
 
 	return s.runs.Update(updateCtx, run)
+}
+
+func terminalPersistenceContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 5*time.Second)
 }
 
 func syncAISolveOutputFromRun(output *AISolveOutput, run *model.AISolveRun) {

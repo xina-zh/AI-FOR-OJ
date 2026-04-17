@@ -26,13 +26,17 @@ type fakeAISolveRunRepository struct {
 }
 
 type fakeAISolveAttemptRepository struct {
-	created []*model.AISolveAttempt
-	err     error
+	created           []*model.AISolveAttempt
+	err               error
+	rejectCanceledCtx bool
 }
 
-func (r *fakeAISolveAttemptRepository) Create(_ context.Context, attempt *model.AISolveAttempt) error {
+func (r *fakeAISolveAttemptRepository) Create(ctx context.Context, attempt *model.AISolveAttempt) error {
 	if r.err != nil {
 		return r.err
+	}
+	if r.rejectCanceledCtx && ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
 	}
 	copy := *attempt
 	r.created = append(r.created, &copy)
@@ -794,6 +798,19 @@ func TestAISolveServiceSolveAdaptiveRepairUsesMultipleAttempts(t *testing.T) {
 	}, ",") {
 		t.Fatalf("expected strategy path to be persisted, got %+v", runRepo.updated[0])
 	}
+	wantAttemptPaths := []string{
+		"",
+		agent.RepairStageWAAnalysisRepair,
+		strings.Join([]string{agent.RepairStageWAAnalysisRepair, agent.RepairStageRESafetyRepair}, ","),
+	}
+	if len(attemptRepo.created) != len(wantAttemptPaths) {
+		t.Fatalf("expected %d persisted attempts, got %+v", len(wantAttemptPaths), attemptRepo.created)
+	}
+	for i, want := range wantAttemptPaths {
+		if attemptRepo.created[i].StrategyPath != want {
+			t.Fatalf("attempt %d StrategyPath = %q, want %q", i+1, attemptRepo.created[i].StrategyPath, want)
+		}
+	}
 	if attemptRepo.created[0].AttemptNo != 1 || attemptRepo.created[2].AttemptNo != 3 {
 		t.Fatalf("expected attempts to be persisted in order, got %+v", attemptRepo.created)
 	}
@@ -1047,5 +1064,54 @@ func TestAISolveServiceSolveFinalizesRunWithCanceledRequestContext(t *testing.T)
 	}
 	if runRepo.updated[0].Status != model.AISolveRunStatusFailed {
 		t.Fatalf("expected failed terminal status, got %+v", runRepo.updated[0])
+	}
+}
+
+func TestAISolveServicePersistAdaptiveAttemptsUsesBackgroundContextAndCoordinatorStrategyPath(t *testing.T) {
+	attemptRepo := &fakeAISolveAttemptRepository{rejectCanceledCtx: true}
+	service := &AISolveService{
+		attempts: attemptRepo,
+	}
+
+	attempts := []agent.AdaptiveRepairAttempt{
+		{
+			AttemptNo:   1,
+			Stage:       "initial_solve",
+			RawResponse: "```cpp\nint main(){return 1;}\n```",
+		},
+		{
+			AttemptNo:   2,
+			Stage:       agent.RepairStageWAAnalysisRepair,
+			RawResponse: "```cpp\nint main(){return 2;}\n```",
+		},
+		{
+			AttemptNo:   3,
+			Stage:       agent.RepairStageRESafetyRepair,
+			RawResponse: "```cpp\nint main(){return 3;}\n```",
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := service.persistAdaptiveAttempts(ctx, 17, []string{
+		agent.RepairStageWAAnalysisRepair,
+		agent.RepairStageRESafetyRepair,
+	}, attempts); err != nil {
+		t.Fatalf("persistAdaptiveAttempts returned error: %v", err)
+	}
+
+	if len(attemptRepo.created) != 3 {
+		t.Fatalf("expected 3 persisted attempts, got %+v", attemptRepo.created)
+	}
+
+	wantPaths := []string{
+		"",
+		agent.RepairStageWAAnalysisRepair,
+		strings.Join([]string{agent.RepairStageWAAnalysisRepair, agent.RepairStageRESafetyRepair}, ","),
+	}
+	for i, want := range wantPaths {
+		if attemptRepo.created[i].StrategyPath != want {
+			t.Fatalf("attempt %d StrategyPath = %q, want %q", i+1, attemptRepo.created[i].StrategyPath, want)
+		}
 	}
 }
