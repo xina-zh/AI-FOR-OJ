@@ -7,6 +7,86 @@ import (
 	"ai-for-oj/internal/llm"
 )
 
+func TestClassifyFailure(t *testing.T) {
+	tests := []struct {
+		name string
+		in   FailureObservation
+		want FailureType
+	}{
+		{
+			name: "wrong answer verdict",
+			in: FailureObservation{
+				Verdict:     "WA",
+				PassedCount: 1,
+				TotalCount:  3,
+				ExecStage:   "run",
+			},
+			want: FailureTypeWrongAnswer,
+		},
+		{
+			name: "runtime error verdict",
+			in: FailureObservation{
+				Verdict:     "RE",
+				RunStderr:   "segmentation fault",
+				PassedCount: 0,
+				TotalCount:  3,
+				ExecStage:   "run",
+			},
+			want: FailureTypeRuntimeError,
+		},
+		{
+			name: "time limit verdict",
+			in: FailureObservation{
+				Verdict:     "TLE",
+				PassedCount: 2,
+				TotalCount:  3,
+				ExecStage:   "run",
+			},
+			want: FailureTypeTimeLimit,
+		},
+		{
+			name: "time limit timeout flag",
+			in: FailureObservation{
+				Verdict:     "",
+				TimedOut:    true,
+				PassedCount: 0,
+				TotalCount:  3,
+				ExecStage:   "run",
+			},
+			want: FailureTypeTimeLimit,
+		},
+		{
+			name: "unknown empty verdict",
+			in: FailureObservation{
+				PassedCount: 0,
+				TotalCount:  0,
+				ExecStage:   "",
+			},
+			want: FailureTypeUnknown,
+		},
+		{
+			name: "unknown other verdict",
+			in: FailureObservation{
+				Verdict:       "CE",
+				CompileStderr: "compiler error",
+				PassedCount:   0,
+				TotalCount:    3,
+				ExecStage:     "compile",
+			},
+			want: FailureTypeUnknown,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ClassifyFailure(tt.in)
+			if got != tt.want {
+				t.Fatalf("ClassifyFailure(...) = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 type fakeExecutorLLMClient struct {
 	request llm.GenerateRequest
 	resp    llm.GenerateResponse
