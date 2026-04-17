@@ -23,7 +23,6 @@ type FailureObservation struct {
 
 func ClassifyFailure(observation FailureObservation) FailureType {
 	verdict := strings.ToUpper(strings.TrimSpace(observation.Verdict))
-	stage := strings.ToLower(strings.TrimSpace(observation.ExecStage))
 
 	switch {
 	case observation.TimedOut, verdict == "TLE", verdict == "TIMEDOUT":
@@ -32,14 +31,6 @@ func ClassifyFailure(observation FailureObservation) FailureType {
 		return FailureTypeWrongAnswer
 	case verdict == "RE":
 		return FailureTypeRuntimeError
-	case verdict == "CE":
-		return FailureTypeUnknown
-	case stage == "run" && observation.TotalCount > 0 && observation.PassedCount > 0 && observation.PassedCount < observation.TotalCount:
-		return FailureTypeWrongAnswer
-	case stage == "compile" && strings.TrimSpace(observation.CompileStderr) != "":
-		return FailureTypeUnknown
-	case stage == "run" && strings.TrimSpace(observation.RunStderr) != "":
-		return FailureTypeUnknown
 	default:
 		return FailureTypeUnknown
 	}

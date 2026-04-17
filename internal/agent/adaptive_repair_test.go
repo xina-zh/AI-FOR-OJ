@@ -58,9 +58,9 @@ func TestClassifyFailure(t *testing.T) {
 		{
 			name: "unknown empty verdict",
 			in: FailureObservation{
-				PassedCount: 0,
-				TotalCount:  0,
-				ExecStage:   "",
+				PassedCount: 1,
+				TotalCount:  3,
+				ExecStage:   "run",
 			},
 			want: FailureTypeUnknown,
 		},
