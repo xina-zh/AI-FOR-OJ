@@ -3,8 +3,8 @@ package model
 type AISolveAttempt struct {
 	BaseModel
 
-	AISolveRunID     uint   `gorm:"column:ai_solve_run_id;not null;index" json:"ai_solve_run_id"`
-	AttemptNo        int    `gorm:"column:attempt_no;not null;index" json:"attempt_no"`
+	AISolveRunID     uint   `gorm:"column:ai_solve_run_id;not null;uniqueIndex:idx_ai_solve_attempt_run_no" json:"ai_solve_run_id"`
+	AttemptNo        int    `gorm:"column:attempt_no;not null;uniqueIndex:idx_ai_solve_attempt_run_no" json:"attempt_no"`
 	Stage            string `gorm:"column:stage;type:varchar(32);not null;default:'';index" json:"stage"`
 	FailureType      string `gorm:"column:failure_type;type:varchar(32);not null;default:'';index" json:"failure_type"`
 	RepairReason     string `gorm:"column:repair_reason;type:text" json:"repair_reason"`
