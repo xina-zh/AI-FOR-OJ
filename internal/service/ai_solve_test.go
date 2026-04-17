@@ -17,7 +17,7 @@ import (
 )
 
 type fakeAISolveRunRepository struct {
-	created           *model.AISolveRun
+	created           []*model.AISolveRun
 	updated           []*model.AISolveRun
 	getRun            *model.AISolveRun
 	err               error
@@ -72,7 +72,7 @@ func (r *fakeAISolveRunRepository) Create(_ context.Context, run *model.AISolveR
 	}
 	run.ID = r.nextID
 	copied := *run
-	r.created = &copied
+	r.created = append(r.created, &copied)
 	return nil
 }
 
@@ -445,6 +445,39 @@ func TestAISolveServiceSolveReturnsCodeExtractionFailure(t *testing.T) {
 	}
 	if len(runRepo.updated) != 1 || runRepo.updated[0].Status != model.AISolveRunStatusFailed {
 		t.Fatalf("expected extraction failure to be persisted, got %+v", runRepo.updated)
+	}
+}
+
+func TestAISolveServiceSolveAdaptiveRepairRejectsMissingCPPBeforeJudge(t *testing.T) {
+	runRepo := &fakeAISolveRunRepository{}
+	judgeSubmitter := &fakeJudgeSubmitter{}
+	service := NewAISolveService(
+		fakeProblemRepository{problem: adaptiveServiceTestProblem()},
+		runRepo,
+		&fakeLLMClient{response: llm.GenerateResponse{Model: "adaptive-model", Content: "I cannot solve this problem."}},
+		judgeSubmitter,
+		"default-model",
+	)
+
+	output, err := service.Solve(context.Background(), AISolveInput{
+		ProblemID:  1,
+		AgentName:  agent.AdaptiveRepairV1AgentName,
+		PromptName: prompt.DefaultSolvePromptName,
+	})
+	if !errors.Is(err, ErrAISolveCodeNotExtracted) {
+		t.Fatalf("expected err %v, got %v", ErrAISolveCodeNotExtracted, err)
+	}
+	if output == nil || output.AISolveRunID == 0 {
+		t.Fatalf("expected failed solve to return run id, got %+v", output)
+	}
+	if len(judgeSubmitter.inputs) != 0 {
+		t.Fatalf("expected no judge submissions, got %d", len(judgeSubmitter.inputs))
+	}
+	if len(runRepo.created) != 1 {
+		t.Fatalf("expected one created run, got %d", len(runRepo.created))
+	}
+	if len(runRepo.updated) != 1 || runRepo.updated[0].Status != model.AISolveRunStatusFailed {
+		t.Fatalf("expected failed run to be persisted, got %+v", runRepo.updated)
 	}
 }
 
