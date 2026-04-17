@@ -169,7 +169,7 @@ func (analyzeThenCodegenStrategy) Execute(ctx context.Context, client llm.Client
 	if err != nil {
 		return SolveOutput{
 			AgentName:       AnalyzeThenCodegenAgentName,
-			Model:           effectiveModel(codeExecution.Model, analysisExecution.Model, input.Model),
+			Model:           effectiveModel(analysisExecution.Model, input.Model),
 			PromptPreview:   codeExecution.PromptPreview,
 			TokenInput:      analysisExecution.TokenInput,
 			TokenOutput:     analysisExecution.TokenOutput,

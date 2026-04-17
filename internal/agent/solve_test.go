@@ -1,6 +1,31 @@
 package agent
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"ai-for-oj/internal/llm"
+	"ai-for-oj/internal/model"
+)
+
+type fakeSolveLLMClient struct {
+	responses []llm.GenerateResponse
+	errors    []error
+	requests  []llm.GenerateRequest
+}
+
+func (c *fakeSolveLLMClient) Generate(_ context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+	c.requests = append(c.requests, req)
+	index := len(c.requests) - 1
+	if index < len(c.errors) && c.errors[index] != nil {
+		return llm.GenerateResponse{}, c.errors[index]
+	}
+	if index < len(c.responses) {
+		return c.responses[index], nil
+	}
+	return llm.GenerateResponse{}, nil
+}
 
 func TestResolveSolveAgentNameAdaptiveRepairV1(t *testing.T) {
 	got, err := ResolveSolveAgentName("adaptive_repair_v1")
@@ -28,5 +53,39 @@ func TestResolveSolveStrategyAdaptiveRepairV1(t *testing.T) {
 func TestSupportsSelfRepairDoesNotDriveAdaptiveRepair(t *testing.T) {
 	if SupportsSelfRepair("adaptive_repair_v1") {
 		t.Fatal("SupportsSelfRepair should not report adaptive_repair_v1 as self-repair capable")
+	}
+}
+
+func TestAnalyzeThenCodegenFailureKeepsAnalysisModelPriority(t *testing.T) {
+	client := &fakeSolveLLMClient{
+		responses: []llm.GenerateResponse{
+			{
+				Model:   "analysis-model",
+				Content: "analysis text",
+			},
+		},
+		errors: []error{
+			nil,
+			errors.New("codegen failed"),
+		},
+	}
+
+	output, err := analyzeThenCodegenStrategy{}.Execute(context.Background(), client, SolveInput{
+		Problem: &model.Problem{
+			Title:       "Echo",
+			Description: "echo input",
+			InputSpec:   "one line",
+			OutputSpec:  "same line",
+			Samples:     "[]",
+		},
+		Model:      "input-model",
+		PromptName: "default",
+	})
+	if err == nil {
+		t.Fatal("analyzeThenCodegenStrategy.Execute returned nil error, want failure")
+	}
+
+	if output.Model != "analysis-model" {
+		t.Fatalf("output.Model = %q, want %q", output.Model, "analysis-model")
 	}
 }
