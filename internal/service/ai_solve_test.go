@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,40 @@ type fakeAISolveRunRepository struct {
 	err               error
 	nextID            uint
 	rejectCanceledCtx bool
+}
+
+type fakeAISolveAttemptRepository struct {
+	created []*model.AISolveAttempt
+	err     error
+}
+
+func (r *fakeAISolveAttemptRepository) Create(_ context.Context, attempt *model.AISolveAttempt) error {
+	if r.err != nil {
+		return r.err
+	}
+	copy := *attempt
+	r.created = append(r.created, &copy)
+	return nil
+}
+
+func (r *fakeAISolveAttemptRepository) ListByRunID(_ context.Context, runID uint) ([]model.AISolveAttempt, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+
+	attempts := make([]model.AISolveAttempt, 0, len(r.created))
+	for _, attempt := range r.created {
+		if attempt != nil && attempt.AISolveRunID == runID {
+			attempts = append(attempts, *attempt)
+		}
+	}
+	sort.Slice(attempts, func(i, j int) bool {
+		if attempts[i].AttemptNo == attempts[j].AttemptNo {
+			return attempts[i].ID < attempts[j].ID
+		}
+		return attempts[i].AttemptNo < attempts[j].AttemptNo
+	})
+	return attempts, nil
 }
 
 func (r *fakeAISolveRunRepository) Create(_ context.Context, run *model.AISolveRun) error {
@@ -130,6 +165,7 @@ func TestAISolveServiceSolve(t *testing.T) {
 		},
 	}
 	runRepo := &fakeAISolveRunRepository{}
+	attemptRepo := &fakeAISolveAttemptRepository{}
 	service := NewAISolveService(
 		fakeProblemRepository{
 			problem: &model.Problem{
@@ -147,6 +183,7 @@ func TestAISolveServiceSolve(t *testing.T) {
 		llmClient,
 		judgeSubmitter,
 		"default-model",
+		attemptRepo,
 	)
 
 	output, err := service.Solve(context.Background(), AISolveInput{ProblemID: 1})
@@ -465,6 +502,7 @@ func TestAISolveServiceSolveAnalyzeThenCodegenAggregatesCost(t *testing.T) {
 		output: &JudgeSubmissionOutput{SubmissionID: 10, ProblemID: 1, SourceType: model.SourceTypeAI, Verdict: "AC"},
 	}
 	runRepo := &fakeAISolveRunRepository{}
+	attemptRepo := &fakeAISolveAttemptRepository{}
 	service := NewAISolveService(
 		fakeProblemRepository{
 			problem: &model.Problem{
@@ -480,6 +518,7 @@ func TestAISolveServiceSolveAnalyzeThenCodegenAggregatesCost(t *testing.T) {
 		llmClient,
 		judgeSubmitter,
 		"default-model",
+		attemptRepo,
 	)
 
 	output, err := service.Solve(context.Background(), AISolveInput{
@@ -657,6 +696,109 @@ func TestAISolveServiceSolveStopsAfterMaxRepairAttempts(t *testing.T) {
 	}
 	if len(runRepo.updated) != 1 || runRepo.updated[0].Verdict != "TLE" {
 		t.Fatalf("expected final persisted verdict to be last attempt result, got %+v", runRepo.updated)
+	}
+}
+
+func TestAISolveServiceSolveAdaptiveRepairUsesMultipleAttempts(t *testing.T) {
+	llmClient := &fakeLLMClient{
+		responses: []llm.GenerateResponse{
+			{Model: "adaptive-model", Content: "```cpp\nint main(){return 1;}\n```", InputTokens: 11, OutputTokens: 7},
+			{Model: "adaptive-model", Content: "```cpp\nint main(){return 2;}\n```", InputTokens: 13, OutputTokens: 9},
+			{Model: "adaptive-model", Content: "```cpp\nint main(){return 3;}\n```", InputTokens: 17, OutputTokens: 11},
+		},
+	}
+	judgeSubmitter := &fakeJudgeSubmitter{
+		outputs: []*JudgeSubmissionOutput{
+			{
+				SubmissionID: 31,
+				ProblemID:    1,
+				SourceType:   model.SourceTypeAI,
+				Verdict:      "WA",
+				ErrorMessage: "wrong answer on sample",
+				PassedCount:  0,
+				TotalCount:   3,
+			},
+			{
+				SubmissionID: 32,
+				ProblemID:    1,
+				SourceType:   model.SourceTypeAI,
+				Verdict:      "RE",
+				ErrorMessage: "runtime error",
+				PassedCount:  1,
+				TotalCount:   3,
+				RunStderr:    "segmentation fault",
+			},
+			{
+				SubmissionID: 33,
+				ProblemID:    1,
+				SourceType:   model.SourceTypeAI,
+				Verdict:      "TLE",
+				ErrorMessage: "time limit exceeded",
+				PassedCount:  2,
+				TotalCount:   3,
+				TimedOut:     true,
+			},
+		},
+	}
+	runRepo := &fakeAISolveRunRepository{}
+	attemptRepo := &fakeAISolveAttemptRepository{}
+	service := NewAISolveService(
+		fakeProblemRepository{
+			problem: &model.Problem{
+				BaseModel:   model.BaseModel{ID: 1},
+				Title:       "Adaptive Echo",
+				Description: "echo with repair",
+				InputSpec:   "line",
+				OutputSpec:  "line",
+				Samples:     "[]",
+			},
+		},
+		runRepo,
+		llmClient,
+		judgeSubmitter,
+		"default-model",
+		attemptRepo,
+	)
+
+	output, err := service.Solve(context.Background(), AISolveInput{
+		ProblemID: 1,
+		AgentName: agent.AdaptiveRepairV1AgentName,
+	})
+	if err != nil {
+		t.Fatalf("solve returned error: %v", err)
+	}
+	if len(llmClient.requests) != 3 {
+		t.Fatalf("expected adaptive repair to make three llm calls, got %d", len(llmClient.requests))
+	}
+	if len(judgeSubmitter.inputs) != 3 {
+		t.Fatalf("expected adaptive repair to submit three judged attempts, got %d", len(judgeSubmitter.inputs))
+	}
+	if len(attemptRepo.created) != 3 {
+		t.Fatalf("expected adaptive repair attempts to be persisted, got %d", len(attemptRepo.created))
+	}
+	if output.Verdict != "TLE" || output.SubmissionID != 33 {
+		t.Fatalf("expected final output to reflect third attempt, got %+v", output)
+	}
+	if len(runRepo.updated) != 1 {
+		t.Fatalf("expected one final run update, got %+v", runRepo.updated)
+	}
+	if runRepo.updated[0].AttemptCount != 3 {
+		t.Fatalf("expected attempt count to be persisted, got %+v", runRepo.updated[0])
+	}
+	if runRepo.updated[0].FailureType != string(agent.FailureTypeTimeLimit) {
+		t.Fatalf("expected failure type to be persisted, got %+v", runRepo.updated[0])
+	}
+	if runRepo.updated[0].StrategyPath != strings.Join([]string{
+		agent.RepairStageWAAnalysisRepair,
+		agent.RepairStageRESafetyRepair,
+	}, ",") {
+		t.Fatalf("expected strategy path to be persisted, got %+v", runRepo.updated[0])
+	}
+	if attemptRepo.created[0].AttemptNo != 1 || attemptRepo.created[2].AttemptNo != 3 {
+		t.Fatalf("expected attempts to be persisted in order, got %+v", attemptRepo.created)
+	}
+	if attemptRepo.created[2].FailureType != string(agent.FailureTypeTimeLimit) {
+		t.Fatalf("expected final attempt failure type to be persisted, got %+v", attemptRepo.created[2])
 	}
 }
 

@@ -68,7 +68,7 @@ func Build(configPath string) (*Container, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init llm client: %w", err)
 	}
-	aiSolveService := service.NewAISolveService(problemRepository, aiSolveRunRepository, llmClient, judgeSubmissionService, cfg.LLM.Model)
+	aiSolveService := service.NewAISolveService(problemRepository, aiSolveRunRepository, llmClient, judgeSubmissionService, cfg.LLM.Model, aiSolveAttemptRepository)
 	aiHandler := handler.NewAIHandler(aiSolveService)
 	experimentService := service.NewExperimentService(experimentRepository, aiSolveService, cfg.LLM.Model)
 	experimentRepeatService := service.NewExperimentRepeatService(experimentRepeatRepository, experimentService, cfg.LLM.Model)
