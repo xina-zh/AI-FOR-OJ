@@ -486,6 +486,70 @@ func TestAISolveServiceSolveAdaptiveRepairRejectsMissingCPPBeforeJudge(t *testin
 	}
 }
 
+func TestAISolveServiceSolveAdaptiveRepairDoesNotReuseStaleJudgeOutputAfterBlankFailure(t *testing.T) {
+	runRepo := &fakeAISolveRunRepository{}
+	attemptRepo := &fakeAISolveAttemptRepository{}
+	judgeSubmitter := &fakeJudgeSubmitter{
+		outputs: []*JudgeSubmissionOutput{
+			{
+				SubmissionID: 101,
+				ProblemID:    1,
+				SourceType:   model.SourceTypeAI,
+				Verdict:      "WA",
+				ErrorMessage: "wrong answer on sample",
+				PassedCount:  0,
+				TotalCount:   1,
+			},
+		},
+	}
+	service := NewAISolveService(
+		fakeProblemRepository{problem: adaptiveServiceTestProblem()},
+		runRepo,
+		&fakeLLMClient{
+			responses: []llm.GenerateResponse{
+				{Model: "adaptive-model", Content: "```cpp\nint main(){return 1;}\n```"},
+				{Model: "adaptive-model", Content: "   "},
+			},
+		},
+		judgeSubmitter,
+		"default-model",
+		attemptRepo,
+	)
+
+	output, err := service.Solve(context.Background(), AISolveInput{
+		ProblemID:  1,
+		AgentName:  agent.AdaptiveRepairV1AgentName,
+		PromptName: prompt.DefaultSolvePromptName,
+	})
+	if !errors.Is(err, ErrAISolveCodeNotExtracted) {
+		t.Fatalf("expected err %v, got %v", ErrAISolveCodeNotExtracted, err)
+	}
+	if output == nil || output.AISolveRunID == 0 {
+		t.Fatalf("expected failed solve to return run id, got %+v", output)
+	}
+	if len(judgeSubmitter.inputs) != 1 {
+		t.Fatalf("expected exactly one judge submission, got %d", len(judgeSubmitter.inputs))
+	}
+	if len(attemptRepo.created) != 2 {
+		t.Fatalf("expected two persisted attempts, got %d", len(attemptRepo.created))
+	}
+	if len(runRepo.updated) != 1 {
+		t.Fatalf("expected one final run update, got %+v", runRepo.updated)
+	}
+	if runRepo.updated[0].SubmissionID != nil {
+		t.Fatalf("expected failed run not to retain submission id, got %+v", runRepo.updated[0])
+	}
+	if runRepo.updated[0].Verdict != "" {
+		t.Fatalf("expected failed run not to retain verdict, got %+v", runRepo.updated[0])
+	}
+	if output.SubmissionID != 0 {
+		t.Fatalf("expected output not to retain submission id, got %+v", output)
+	}
+	if output.Verdict != "" {
+		t.Fatalf("expected output not to retain verdict, got %+v", output)
+	}
+}
+
 func TestAISolveServiceGetRun(t *testing.T) {
 	runRepo := &fakeAISolveRunRepository{
 		getRun: &model.AISolveRun{

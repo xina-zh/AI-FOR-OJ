@@ -333,7 +333,11 @@ func (s *AISolveService) solveAdaptiveRepair(
 		JudgeSubmitter: adapter,
 	})
 
-	s.applyAdaptiveResult(run, output, result, adapter.lastOutput(), startedAt)
+	var judgeOutput *JudgeSubmissionOutput
+	if err == nil {
+		judgeOutput = adapter.lastOutput()
+	}
+	s.applyAdaptiveResult(run, output, result, judgeOutput, startedAt)
 	if persistErr := s.persistAdaptiveAttempts(ctx, run.ID, result.StrategyPath, result.Attempts); persistErr != nil {
 		return s.failRun(ctx, run, output, startedAt, persistErr.Error(), persistErr)
 	}
@@ -389,6 +393,9 @@ func (s *AISolveService) applyAdaptiveResult(
 	run.TokenOutput = result.SolveOutput.TokenOutput
 	run.LLMLatencyMS = result.SolveOutput.LLMLatencyMS
 	run.TotalLatencyMS = elapsedMS(startedAt)
+	run.SubmissionID = nil
+	run.Verdict = ""
+	run.ErrorMessage = ""
 	if judgeOutput != nil {
 		run.SubmissionID = &judgeOutput.SubmissionID
 		run.Verdict = judgeOutput.Verdict
@@ -398,6 +405,9 @@ func (s *AISolveService) applyAdaptiveResult(
 	syncAISolveOutputFromRun(output, run)
 	output.RawResponse = truncateForPreview(result.SolveOutput.RawResponse, 4000)
 	output.ExtractedCode = run.ExtractedCode
+	output.SubmissionID = 0
+	output.Verdict = ""
+	output.ErrorMessage = ""
 	if judgeOutput != nil {
 		output.SubmissionID = judgeOutput.SubmissionID
 		output.Verdict = judgeOutput.Verdict
