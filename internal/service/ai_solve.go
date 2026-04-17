@@ -130,7 +130,11 @@ func (s *AISolveService) Solve(ctx context.Context, input AISolveInput) (*AISolv
 }
 
 func (s *AISolveService) GetRun(ctx context.Context, runID uint) (*model.AISolveRun, error) {
-	return s.runs.GetByID(ctx, runID)
+	run, err := s.runs.GetByID(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	return run, nil
 }
 
 func (s *AISolveService) failRun(

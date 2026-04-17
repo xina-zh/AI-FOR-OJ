@@ -107,6 +107,9 @@ func (h *AIHandler) GetRun(c *gin.Context) {
 		Model:          run.Model,
 		PromptName:     prompt.DisplaySolvePromptName(run.PromptName),
 		AgentName:      agent.DisplaySolveAgentName(run.AgentName),
+		AttemptCount:   run.AttemptCount,
+		FailureType:    run.FailureType,
+		StrategyPath:   run.StrategyPath,
 		PromptPreview:  run.PromptPreview,
 		RawResponse:    run.RawResponse,
 		ExtractedCode:  run.ExtractedCode,
@@ -118,7 +121,20 @@ func (h *AIHandler) GetRun(c *gin.Context) {
 		TokenOutput:    run.TokenOutput,
 		LLMLatencyMS:   run.LLMLatencyMS,
 		TotalLatencyMS: run.TotalLatencyMS,
-		CreatedAt:      run.CreatedAt,
-		UpdatedAt:      run.UpdatedAt,
+		Attempts: func() []dto.AISolveAttemptResponse {
+			attempts := make([]dto.AISolveAttemptResponse, 0, len(run.Attempts))
+			for _, attempt := range run.Attempts {
+				attempts = append(attempts, dto.AISolveAttemptResponse{
+					AttemptNo:    attempt.AttemptNo,
+					Stage:        attempt.Stage,
+					Verdict:      attempt.JudgeVerdict,
+					FailureType:  attempt.FailureType,
+					RepairReason: attempt.RepairReason,
+				})
+			}
+			return attempts
+		}(),
+		CreatedAt: run.CreatedAt,
+		UpdatedAt: run.UpdatedAt,
 	})
 }
