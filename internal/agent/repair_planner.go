@@ -36,6 +36,10 @@ func (p RepairPlanner) Next(input RepairPlanInput) RepairPlanDecision {
 		return RepairPlanDecision{Stop: true}
 	}
 
+	if containsStage(input.PreviousStages, RepairStageFallbackRewrite) {
+		return RepairPlanDecision{Stop: true}
+	}
+
 	stage := stageForFailure(input.LastFailure)
 	if stage == "" {
 		stage = RepairStageFallbackRewrite
@@ -45,7 +49,7 @@ func (p RepairPlanner) Next(input RepairPlanInput) RepairPlanDecision {
 		return RepairPlanDecision{Stage: stage}
 	}
 
-	if stage != RepairStageFallbackRewrite && !containsStage(input.PreviousStages, RepairStageFallbackRewrite) {
+	if stage != RepairStageFallbackRewrite {
 		return RepairPlanDecision{Stage: RepairStageFallbackRewrite}
 	}
 

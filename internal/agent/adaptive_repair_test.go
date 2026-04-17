@@ -164,11 +164,10 @@ func TestRepairPlanner(t *testing.T) {
 	planner := NewRepairPlanner(3)
 
 	tests := []struct {
-		name          string
-		in            RepairPlanInput
-		wantStage     string
-		allowFallback bool
-		wantStop      bool
+		name      string
+		in        RepairPlanInput
+		wantStage string
+		wantStop  bool
 	}{
 		{
 			name: "wrong answer after initial attempt",
@@ -178,7 +177,7 @@ func TestRepairPlanner(t *testing.T) {
 				PreviousStages: nil,
 				MaxBudget:      3,
 			},
-			wantStage: "wa_analysis_repair",
+			wantStage: RepairStageWAAnalysisRepair,
 		},
 		{
 			name: "runtime error routes to safety repair",
@@ -188,7 +187,7 @@ func TestRepairPlanner(t *testing.T) {
 				PreviousStages: nil,
 				MaxBudget:      3,
 			},
-			wantStage: "re_safety_repair",
+			wantStage: RepairStageRESafetyRepair,
 		},
 		{
 			name: "time limit routes to complexity rewrite",
@@ -198,36 +197,41 @@ func TestRepairPlanner(t *testing.T) {
 				PreviousStages: nil,
 				MaxBudget:      3,
 			},
-			wantStage: "tle_complexity_rewrite",
+			wantStage: RepairStageTLEComplexityRewrite,
 		},
 		{
-			name: "repeated same failure beyond budget falls back or stops",
+			name: "targeted stage already used falls back",
 			in: RepairPlanInput{
-				AttemptCount:   3,
+				AttemptCount:   2,
 				LastFailure:    FailureTypeWrongAnswer,
-				PreviousStages: []string{"wa_analysis_repair", "wa_analysis_repair"},
+				PreviousStages: []string{RepairStageWAAnalysisRepair},
 				MaxBudget:      3,
 			},
-			wantStage:     "fallback_rewrite",
-			allowFallback: true,
-			wantStop:      true,
+			wantStage: RepairStageFallbackRewrite,
+		},
+		{
+			name: "fallback stage already used stops",
+			in: RepairPlanInput{
+				AttemptCount:   2,
+				LastFailure:    FailureTypeWrongAnswer,
+				PreviousStages: []string{RepairStageWAAnalysisRepair, RepairStageFallbackRewrite},
+				MaxBudget:      3,
+			},
+			wantStop: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := planner.Next(tt.in)
-			if tt.wantStop {
-				if got.Stop {
-					return
-				}
-				if tt.allowFallback && got.Stage == tt.wantStage {
-					return
-				}
-				t.Fatalf("planner.Next(...) = %+v, want stop or stage %q", got, tt.wantStage)
-			}
 			if got.Stop {
+				if tt.wantStop {
+					return
+				}
 				t.Fatalf("planner.Next(...) stopped early: %+v", got)
+			}
+			if tt.wantStop {
+				t.Fatalf("planner.Next(...) = %+v, want stop", got)
 			}
 			if got.Stage != tt.wantStage {
 				t.Fatalf("planner.Next(...) = %+v, want stage %q", got, tt.wantStage)
