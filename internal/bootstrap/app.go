@@ -19,11 +19,12 @@ import (
 )
 
 type Container struct {
-	Config config.Config
-	Logger *slog.Logger
-	DB     *gorm.DB
-	SQLDB  *sql.DB
-	Server *runtime.App
+	Config                   config.Config
+	Logger                   *slog.Logger
+	DB                       *gorm.DB
+	SQLDB                    *sql.DB
+	AISolveAttemptRepository repository.AISolveAttemptRepository
+	Server                   *runtime.App
 }
 
 func Build(configPath string) (*Container, error) {
@@ -49,6 +50,7 @@ func Build(configPath string) (*Container, error) {
 	testCaseRepository := repository.NewTestCaseRepository(db)
 	submissionRepository := repository.NewSubmissionRepository(db)
 	aiSolveRunRepository := repository.NewAISolveRunRepository(db)
+	aiSolveAttemptRepository := repository.NewAISolveAttemptRepository(db)
 	experimentRepository := repository.NewExperimentRepository(db)
 	experimentRepeatRepository := repository.NewExperimentRepeatRepository(db)
 	experimentCompareRepository := repository.NewExperimentCompareRepository(db)
@@ -79,10 +81,11 @@ func Build(configPath string) (*Container, error) {
 	})
 
 	return &Container{
-		Config: cfg,
-		Logger: logger,
-		DB:     db,
-		SQLDB:  sqlDB,
-		Server: server,
+		Config:                   cfg,
+		Logger:                   logger,
+		DB:                       db,
+		SQLDB:                    sqlDB,
+		AISolveAttemptRepository: aiSolveAttemptRepository,
+		Server:                   server,
 	}, nil
 }
