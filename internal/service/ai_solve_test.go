@@ -1001,6 +1001,119 @@ func TestAISolveServiceSolveAdaptiveRepairPreservesFailureTypeOnAC(t *testing.T)
 	}
 }
 
+func TestAISolveServiceSolveAdaptiveRepairVerdictSpecificRepairsCanRecover(t *testing.T) {
+	tests := []struct {
+		name        string
+		firstJudge  *JudgeSubmissionOutput
+		secondJudge *JudgeSubmissionOutput
+		wantMarker  string
+		wantFailure string
+	}{
+		{
+			name: "runtime error repair",
+			firstJudge: &JudgeSubmissionOutput{
+				SubmissionID: 61,
+				ProblemID:    1,
+				SourceType:   model.SourceTypeAI,
+				Verdict:      "RE",
+				ErrorMessage: "segmentation fault",
+				RunStderr:    "segmentation fault",
+				PassedCount:  1,
+				TotalCount:   2,
+			},
+			secondJudge: &JudgeSubmissionOutput{
+				SubmissionID: 62,
+				ProblemID:    1,
+				SourceType:   model.SourceTypeAI,
+				Verdict:      "AC",
+				PassedCount:  2,
+				TotalCount:   2,
+			},
+			wantMarker:  "PROMPT_TEMPLATE: repair_re",
+			wantFailure: string(agent.FailureTypeRuntimeError),
+		},
+		{
+			name: "time limit repair",
+			firstJudge: &JudgeSubmissionOutput{
+				SubmissionID: 71,
+				ProblemID:    1,
+				SourceType:   model.SourceTypeAI,
+				Verdict:      "TLE",
+				ErrorMessage: "time limit exceeded",
+				TimedOut:     true,
+				PassedCount:  1,
+				TotalCount:   2,
+			},
+			secondJudge: &JudgeSubmissionOutput{
+				SubmissionID: 72,
+				ProblemID:    1,
+				SourceType:   model.SourceTypeAI,
+				Verdict:      "AC",
+				PassedCount:  2,
+				TotalCount:   2,
+			},
+			wantMarker:  "PROMPT_TEMPLATE: repair_tle",
+			wantFailure: string(agent.FailureTypeTimeLimit),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			llmClient := &fakeLLMClient{
+				responses: []llm.GenerateResponse{
+					{Model: "adaptive-model", Content: "```cpp\nint main(){return 1;}\n```"},
+					{Model: "adaptive-model", Content: "```cpp\nint main(){return 0;}\n```"},
+				},
+			}
+			judgeSubmitter := &fakeJudgeSubmitter{
+				outputs: []*JudgeSubmissionOutput{tt.firstJudge, tt.secondJudge},
+			}
+			runRepo := &fakeAISolveRunRepository{}
+			attemptRepo := &fakeAISolveAttemptRepository{}
+			service := NewAISolveService(
+				fakeProblemRepository{problem: adaptiveServiceTestProblem()},
+				runRepo,
+				llmClient,
+				judgeSubmitter,
+				"default-model",
+				attemptRepo,
+			)
+
+			output, err := service.Solve(context.Background(), AISolveInput{
+				ProblemID: 1,
+				AgentName: agent.AdaptiveRepairV1AgentName,
+			})
+			if err != nil {
+				t.Fatalf("solve returned error: %v", err)
+			}
+			if output.Verdict != "AC" || output.SubmissionID != tt.secondJudge.SubmissionID {
+				t.Fatalf("expected final output to reflect accepted repair, got %+v", output)
+			}
+			if len(llmClient.requests) != 2 {
+				t.Fatalf("expected initial generation plus one repair, got %d llm calls", len(llmClient.requests))
+			}
+			if len(judgeSubmitter.inputs) != 2 {
+				t.Fatalf("expected two judge submissions, got %d", len(judgeSubmitter.inputs))
+			}
+			if !strings.Contains(llmClient.requests[1].Prompt, tt.wantMarker) {
+				t.Fatalf("expected repair prompt marker %q, got %q", tt.wantMarker, llmClient.requests[1].Prompt)
+			}
+			if len(runRepo.updated) != 1 {
+				t.Fatalf("expected one final run update, got %+v", runRepo.updated)
+			}
+			if runRepo.updated[0].FailureType != tt.wantFailure {
+				t.Fatalf("expected final run failure type %q, got %+v", tt.wantFailure, runRepo.updated[0])
+			}
+			if runRepo.updated[0].Verdict != "AC" {
+				t.Fatalf("expected final run verdict AC, got %+v", runRepo.updated[0])
+			}
+			if len(attemptRepo.created) != 2 {
+				t.Fatalf("expected two persisted attempts, got %+v", attemptRepo.created)
+			}
+		})
+	}
+}
+
 func TestAISolveServiceSolveAdaptiveRepairUsesDefaultFourAttemptBudget(t *testing.T) {
 	llmClient := &fakeLLMClient{
 		responses: []llm.GenerateResponse{
