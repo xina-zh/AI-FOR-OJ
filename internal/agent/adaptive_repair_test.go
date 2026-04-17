@@ -10,12 +10,12 @@ import (
 func TestClassifyFailure(t *testing.T) {
 	tests := []struct {
 		name string
-		in   FailureObservation
+		in   JudgeFailureObservation
 		want FailureType
 	}{
 		{
 			name: "wrong answer verdict",
-			in: FailureObservation{
+			in: JudgeFailureObservation{
 				Verdict:     "WA",
 				PassedCount: 1,
 				TotalCount:  3,
@@ -25,7 +25,7 @@ func TestClassifyFailure(t *testing.T) {
 		},
 		{
 			name: "runtime error verdict",
-			in: FailureObservation{
+			in: JudgeFailureObservation{
 				Verdict:     "RE",
 				RunStderr:   "segmentation fault",
 				PassedCount: 0,
@@ -36,7 +36,7 @@ func TestClassifyFailure(t *testing.T) {
 		},
 		{
 			name: "time limit verdict",
-			in: FailureObservation{
+			in: JudgeFailureObservation{
 				Verdict:     "TLE",
 				PassedCount: 2,
 				TotalCount:  3,
@@ -46,7 +46,7 @@ func TestClassifyFailure(t *testing.T) {
 		},
 		{
 			name: "time limit timeout flag",
-			in: FailureObservation{
+			in: JudgeFailureObservation{
 				Verdict:     "",
 				TimedOut:    true,
 				PassedCount: 0,
@@ -57,7 +57,7 @@ func TestClassifyFailure(t *testing.T) {
 		},
 		{
 			name: "unknown empty verdict",
-			in: FailureObservation{
+			in: JudgeFailureObservation{
 				PassedCount: 1,
 				TotalCount:  3,
 				ExecStage:   "run",
@@ -65,13 +65,34 @@ func TestClassifyFailure(t *testing.T) {
 			want: FailureTypeUnknown,
 		},
 		{
-			name: "unknown other verdict",
-			in: FailureObservation{
+			name: "CE is unknown",
+			in: JudgeFailureObservation{
 				Verdict:       "CE",
 				CompileStderr: "compiler error",
 				PassedCount:   0,
 				TotalCount:    3,
 				ExecStage:     "compile",
+			},
+			want: FailureTypeUnknown,
+		},
+		{
+			name: "compile stage stderr is unknown",
+			in: JudgeFailureObservation{
+				Verdict:       "",
+				CompileStderr: "compiler error",
+				PassedCount:   0,
+				TotalCount:    3,
+				ExecStage:     "compile",
+			},
+			want: FailureTypeUnknown,
+		},
+		{
+			name: "other verdict stays unknown",
+			in: JudgeFailureObservation{
+				Verdict:     "AC",
+				PassedCount: 3,
+				TotalCount:  3,
+				ExecStage:   "run",
 			},
 			want: FailureTypeUnknown,
 		},

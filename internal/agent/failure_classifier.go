@@ -11,7 +11,8 @@ const (
 	FailureTypeTimeLimit    FailureType = "time_limit"
 )
 
-type FailureObservation struct {
+// JudgeFailureObservation captures the judge output needed to classify a failure.
+type JudgeFailureObservation struct {
 	Verdict       string
 	TimedOut      bool
 	CompileStderr string
@@ -21,7 +22,7 @@ type FailureObservation struct {
 	ExecStage     string
 }
 
-func ClassifyFailure(observation FailureObservation) FailureType {
+func ClassifyFailure(observation JudgeFailureObservation) FailureType {
 	verdict := strings.ToUpper(strings.TrimSpace(observation.Verdict))
 
 	switch {
