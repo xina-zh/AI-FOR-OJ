@@ -89,3 +89,78 @@ func TestAnalyzeThenCodegenFailureKeepsAnalysisModelPriority(t *testing.T) {
 		t.Fatalf("output.Model = %q, want %q", output.Model, "analysis-model")
 	}
 }
+
+func TestAnalyzeThenCodegenKeepsInputModelOnAnalysisError(t *testing.T) {
+	client := &fakeSolveLLMClient{
+		errors: []error{errors.New("analysis failed")},
+	}
+
+	output, err := analyzeThenCodegenStrategy{}.Execute(context.Background(), client, SolveInput{
+		Problem: &model.Problem{
+			Title:       "Echo",
+			Description: "echo input",
+			InputSpec:   "one line",
+			OutputSpec:  "same line",
+			Samples:     "[]",
+		},
+		Model:      "input-model",
+		PromptName: "default",
+	})
+	if err == nil {
+		t.Fatal("analyzeThenCodegenStrategy.Execute returned nil error, want failure")
+	}
+
+	if output.Model != "input-model" {
+		t.Fatalf("output.Model = %q, want %q", output.Model, "input-model")
+	}
+}
+
+func TestDirectCodegenKeepsInputModelOnError(t *testing.T) {
+	client := &fakeSolveLLMClient{
+		errors: []error{errors.New("generate failed")},
+	}
+
+	output, err := directCodegenStrategy{}.Execute(context.Background(), client, SolveInput{
+		Problem: &model.Problem{
+			Title:       "Echo",
+			Description: "echo input",
+			InputSpec:   "one line",
+			OutputSpec:  "same line",
+			Samples:     "[]",
+		},
+		Model:      "input-model",
+		PromptName: "default",
+	})
+	if err == nil {
+		t.Fatal("directCodegenStrategy.Execute returned nil error, want failure")
+	}
+
+	if output.Model != "input-model" {
+		t.Fatalf("output.Model = %q, want %q", output.Model, "input-model")
+	}
+}
+
+func TestDirectCodegenRepairKeepsInputModelOnError(t *testing.T) {
+	client := &fakeSolveLLMClient{
+		errors: []error{errors.New("generate failed")},
+	}
+
+	output, err := directCodegenRepairStrategy{}.Execute(context.Background(), client, SolveInput{
+		Problem: &model.Problem{
+			Title:       "Echo",
+			Description: "echo input",
+			InputSpec:   "one line",
+			OutputSpec:  "same line",
+			Samples:     "[]",
+		},
+		Model:      "input-model",
+		PromptName: "default",
+	})
+	if err == nil {
+		t.Fatal("directCodegenRepairStrategy.Execute returned nil error, want failure")
+	}
+
+	if output.Model != "input-model" {
+		t.Fatalf("output.Model = %q, want %q", output.Model, "input-model")
+	}
+}

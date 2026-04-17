@@ -100,7 +100,7 @@ func (directCodegenStrategy) Execute(ctx context.Context, client llm.Client, inp
 	if err != nil {
 		return SolveOutput{
 			AgentName:     DirectCodegenAgentName,
-			Model:         execution.Model,
+			Model:         input.Model,
 			PromptPreview: execution.PromptPreview,
 			LLMLatencyMS:  execution.LLMLatencyMS,
 		}, err
@@ -131,7 +131,7 @@ func (directCodegenRepairStrategy) Execute(ctx context.Context, client llm.Clien
 	if err != nil {
 		return SolveOutput{
 			AgentName:     DirectCodegenRepairAgentName,
-			Model:         execution.Model,
+			Model:         input.Model,
 			PromptPreview: execution.PromptPreview,
 			LLMLatencyMS:  execution.LLMLatencyMS,
 		}, err
@@ -158,7 +158,7 @@ func (analyzeThenCodegenStrategy) Execute(ctx context.Context, client llm.Client
 	if err != nil {
 		return SolveOutput{
 			AgentName:     AnalyzeThenCodegenAgentName,
-			Model:         analysisExecution.Model,
+			Model:         input.Model,
 			PromptPreview: analysisExecution.PromptPreview,
 			LLMLatencyMS:  analysisExecution.LLMLatencyMS,
 		}, err
