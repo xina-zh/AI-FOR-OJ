@@ -159,3 +159,79 @@ func TestExecuteLLMOnceReturnsExecutionMetadata(t *testing.T) {
 		t.Fatalf("LLMLatencyMS = %d, want >= 0", got.LLMLatencyMS)
 	}
 }
+
+func TestRepairPlanner(t *testing.T) {
+	planner := NewRepairPlanner(3)
+
+	tests := []struct {
+		name          string
+		in            RepairPlanInput
+		wantStage     string
+		allowFallback bool
+		wantStop      bool
+	}{
+		{
+			name: "wrong answer after initial attempt",
+			in: RepairPlanInput{
+				AttemptCount:   1,
+				LastFailure:    FailureTypeWrongAnswer,
+				PreviousStages: nil,
+				MaxBudget:      3,
+			},
+			wantStage: "wa_analysis_repair",
+		},
+		{
+			name: "runtime error routes to safety repair",
+			in: RepairPlanInput{
+				AttemptCount:   1,
+				LastFailure:    FailureTypeRuntimeError,
+				PreviousStages: nil,
+				MaxBudget:      3,
+			},
+			wantStage: "re_safety_repair",
+		},
+		{
+			name: "time limit routes to complexity rewrite",
+			in: RepairPlanInput{
+				AttemptCount:   1,
+				LastFailure:    FailureTypeTimeLimit,
+				PreviousStages: nil,
+				MaxBudget:      3,
+			},
+			wantStage: "tle_complexity_rewrite",
+		},
+		{
+			name: "repeated same failure beyond budget falls back or stops",
+			in: RepairPlanInput{
+				AttemptCount:   3,
+				LastFailure:    FailureTypeWrongAnswer,
+				PreviousStages: []string{"wa_analysis_repair", "wa_analysis_repair"},
+				MaxBudget:      3,
+			},
+			wantStage:     "fallback_rewrite",
+			allowFallback: true,
+			wantStop:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := planner.Next(tt.in)
+			if tt.wantStop {
+				if got.Stop {
+					return
+				}
+				if tt.allowFallback && got.Stage == tt.wantStage {
+					return
+				}
+				t.Fatalf("planner.Next(...) = %+v, want stop or stage %q", got, tt.wantStage)
+			}
+			if got.Stop {
+				t.Fatalf("planner.Next(...) stopped early: %+v", got)
+			}
+			if got.Stage != tt.wantStage {
+				t.Fatalf("planner.Next(...) = %+v, want stage %q", got, tt.wantStage)
+			}
+		})
+	}
+}
