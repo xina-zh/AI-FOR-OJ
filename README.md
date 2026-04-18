@@ -99,6 +99,7 @@
   - `direct_codegen`
   - `direct_codegen_repair`
   - `analyze_then_codegen`
+  - `adaptive_repair_v1`
 - `direct_codegen_repair` 支持最小失败后修复闭环
   - 首次生成代码并判题
   - 非 `AC` 时基于上一轮代码与判题反馈继续修复
@@ -309,6 +310,7 @@ export LLM_MODEL=your-actual-model-name
 - `direct_codegen`
 - `direct_codegen_repair`
 - `analyze_then_codegen`
+- `adaptive_repair_v1`
 
 说明：
 
@@ -362,6 +364,9 @@ agent_name
 direct_codegen  直接生成一次代码，不修复
 direct_codegen_repair  先生成代码，失败后最多再修复 2 次
 analyze_then_codegen  先分析，再生成代码
+adaptive_repair_v1  按判题结果选择修复路径
+
+它会按 `WA` / `RE` / `TLE` 路由到不同修复提示词，且最多保留 4 次已判题尝试。
 
 repeat_count  repeat 实验重复次数
 
@@ -380,7 +385,19 @@ curl --noproxy '*' -sS -X POST http://127.0.0.1:8080/api/v1/ai/solve \
     "agent_name": "direct_codegen"
   }'
 
-curl --noproxy '*' -sS http://127.0.0.1:8080/api/v1/ai/solve-runs/<AI_SOLVE_RUN_ID>
+adaptive_repair_v1 示例：
+
+```bash
+curl --noproxy '*' -sS -X POST http://127.0.0.1:8080/api/v1/ai/solve \
+  -H 'Content-Type: application/json' \
+  -d '{"problem_id":5,"agent_name":"adaptive_repair_v1"}'
+```
+
+单次运行详情可以通过以下接口获取：
+
+```bash
+curl --noproxy '*' -sS http://127.0.0.1:8080/api/v1/ai/solve-runs/<run_id>
+```
 3. 调用 repeat 的模板
 
 
