@@ -1001,6 +1001,72 @@ func TestAISolveServiceSolveAdaptiveRepairPreservesFailureTypeOnAC(t *testing.T)
 	}
 }
 
+func TestAISolveServiceSolveAdaptiveRepairAttemptPersistenceFailureClearsTerminalJudgeFields(t *testing.T) {
+	persistErr := errors.New("persist attempts")
+	llmClient := &fakeLLMClient{
+		response: llm.GenerateResponse{
+			Model:   "adaptive-model",
+			Content: "```cpp\nint main(){return 0;}\n```",
+		},
+	}
+	judgeSubmitter := &fakeJudgeSubmitter{
+		output: &JudgeSubmissionOutput{
+			SubmissionID: 91,
+			ProblemID:    1,
+			SourceType:   model.SourceTypeAI,
+			Verdict:      "AC",
+			PassedCount:  1,
+			TotalCount:   1,
+		},
+	}
+	runRepo := &fakeAISolveRunRepository{}
+	attemptRepo := &fakeAISolveAttemptRepository{err: persistErr}
+	service := NewAISolveService(
+		fakeProblemRepository{problem: adaptiveServiceTestProblem()},
+		runRepo,
+		llmClient,
+		judgeSubmitter,
+		"default-model",
+		attemptRepo,
+	)
+
+	output, err := service.Solve(context.Background(), AISolveInput{
+		ProblemID: 1,
+		AgentName: agent.AdaptiveRepairV1AgentName,
+	})
+	if !errors.Is(err, persistErr) {
+		t.Fatalf("expected err %v, got %v", persistErr, err)
+	}
+	if output == nil || output.AISolveRunID == 0 {
+		t.Fatalf("expected failed solve to return run id, got %+v", output)
+	}
+	if len(runRepo.updated) != 1 {
+		t.Fatalf("expected one failed run update, got %+v", runRepo.updated)
+	}
+	terminal := runRepo.updated[0]
+	if terminal.Status != model.AISolveRunStatusFailed {
+		t.Fatalf("expected failed run status, got %+v", terminal)
+	}
+	if terminal.Verdict != "" {
+		t.Fatalf("expected failed run not to retain AC verdict, got %+v", terminal)
+	}
+	if terminal.SubmissionID != nil {
+		t.Fatalf("expected failed run not to retain submission id, got %+v", terminal)
+	}
+	if terminal.ErrorMessage != persistErr.Error() {
+		t.Fatalf("expected persistence error on failed run, got %+v", terminal)
+	}
+	if output.Verdict != "" {
+		t.Fatalf("expected failed output not to retain AC verdict, got %+v", output)
+	}
+	if output.SubmissionID != 0 {
+		t.Fatalf("expected failed output not to retain submission id, got %+v", output)
+	}
+	if output.ErrorMessage != persistErr.Error() {
+		t.Fatalf("expected persistence error on failed output, got %+v", output)
+	}
+}
+
 func TestAISolveServiceSolveAdaptiveRepairVerdictSpecificRepairsCanRecover(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -1401,6 +1467,33 @@ func TestAISolveServicePersistAdaptiveAttemptsUsesBackgroundContextAndCoordinato
 		if attemptRepo.created[i].StrategyPath != want {
 			t.Fatalf("attempt %d StrategyPath = %q, want %q", i+1, attemptRepo.created[i].StrategyPath, want)
 		}
+	}
+}
+
+func TestAISolveServicePersistAdaptiveAttemptsTruncatesPromptPreview(t *testing.T) {
+	attemptRepo := &fakeAISolveAttemptRepository{}
+	service := &AISolveService{
+		attempts: attemptRepo,
+	}
+	largePreview := strings.Repeat("x", 900)
+
+	if err := service.persistAdaptiveAttempts(context.Background(), 17, nil, []agent.AdaptiveRepairAttempt{
+		{
+			AttemptNo:     1,
+			Stage:         "initial_solve",
+			PromptPreview: largePreview,
+			RawResponse:   "```cpp\nint main(){return 0;}\n```",
+		},
+	}); err != nil {
+		t.Fatalf("persistAdaptiveAttempts returned error: %v", err)
+	}
+
+	if len(attemptRepo.created) != 1 {
+		t.Fatalf("expected one persisted attempt, got %+v", attemptRepo.created)
+	}
+	want := strings.Repeat("x", 800) + "...(truncated)"
+	if attemptRepo.created[0].PromptPreview != want {
+		t.Fatalf("PromptPreview length = %d, want %d", len(attemptRepo.created[0].PromptPreview), len(want))
 	}
 }
 

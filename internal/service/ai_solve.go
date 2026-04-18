@@ -147,12 +147,18 @@ func (s *AISolveService) failRun(
 ) (*AISolveOutput, error) {
 	run.Status = model.AISolveRunStatusFailed
 	run.ErrorMessage = message
+	run.SubmissionID = nil
+	run.Verdict = ""
 	run.TotalLatencyMS = elapsedMS(startedAt)
 	if err := s.persistTerminalRun(run); err != nil {
 		syncAISolveOutputFromRun(output, run)
+		output.SubmissionID = 0
+		output.Verdict = ""
 		return output, fmt.Errorf("update ai solve run: %w", err)
 	}
 	syncAISolveOutputFromRun(output, run)
+	output.SubmissionID = 0
+	output.Verdict = ""
 	return output, returnErr
 }
 
@@ -459,7 +465,7 @@ func (s *AISolveService) persistAdaptiveAttempts(
 			Stage:            attempt.Stage,
 			FailureType:      string(attempt.FailureType),
 			StrategyPath:     strategyPathForAttempt(strategyPath, attempt.AttemptNo),
-			PromptPreview:    attempt.PromptPreview,
+			PromptPreview:    truncateForPreview(attempt.PromptPreview, 800),
 			RawResponse:      attempt.RawResponse,
 			ExtractedCode:    extractCPPCode(attempt.RawResponse),
 			JudgeVerdict:     attempt.JudgeFeedback.Verdict,
