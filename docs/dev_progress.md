@@ -290,3 +290,4 @@
 - 在 `ai_solve_attempts` 中记录每次 attempt 的 prompt/code/judge/cost 元数据。
 - 将 `WA`、`RE`、`TLE` 分别路由到不同修复提示词。
 - 实验运行输出增加 `attempt_count`、`strategy_path` 和 `failure_type`。
+- 本地 smoke 已验证 `adaptive_repair_v1`：`problem_id=1`，`ai_solve_run_id=2`，可通过 `POST /api/v1/ai/solve` 和 `GET /api/v1/ai/solve-runs/:id` 取回运行详情。
