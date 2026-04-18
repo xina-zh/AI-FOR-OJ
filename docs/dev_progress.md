@@ -290,4 +290,4 @@
 - 在 `ai_solve_attempts` 中记录每次 attempt 的 prompt/code/judge/cost 元数据。
 - 将 `WA`、`RE`、`TLE` 分别路由到不同修复提示词。
 - 实验运行输出增加 `attempt_count`、`strategy_path` 和 `failure_type`。
-- 本地 smoke 已尝试验证 `adaptive_repair_v1`，使用确定性回显题 `AI Solve Echo`（`problem_id=1`）：`POST /api/v1/ai/solve` 已返回 `ai_solve_run_id=2`、`agent_name=adaptive_repair_v1`、`verdict=UNJUDGEABLE`、`token_input=198`、`token_output=34`、`llm_latency_ms=0`、`total_latency_ms=45`。`GET /api/v1/ai/solve-runs/2` 在容器内可返回运行详情，但宿主机执行 `curl --noproxy '*' -sS http://127.0.0.1:8080/api/v1/ai/solve-runs/2` 持续报 `curl: (7) Couldn't connect to server`，当前宿主机 smoke 受环境阻塞。
+- 本地 smoke 已完成 `adaptive_repair_v1` 验证，使用确定性回显题 `AI Solve Echo`（`problem_id=1`）并通过 API 补充了 2 个 echo testcases。随后 `POST /api/v1/ai/solve` 返回 `ai_solve_run_id=3`、`agent_name=adaptive_repair_v1`、`verdict=AC`、`token_input=54`、`token_output=17`、`llm_latency_ms=0`、`total_latency_ms=2056`。宿主机 `GET /api/v1/ai/solve-runs/3` 成功返回运行详情，包含 `attempt_count=1`、`strategy_path=""`、`failure_type=unknown`、`attempts`。
