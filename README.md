@@ -54,7 +54,10 @@
   - `CE`
   - `RE`
   - `TLE`
+  - `MLE`
   - `UNJUDGEABLE`
+- `MLE` 表示 Docker sandbox 检测到运行容器被题目内存限制触发 OOM kill。
+  - 当前 `memory_kb` 在 OOM 时按题目内存限制回填，尚未实现精确峰值 RSS 统计。
 
 ### Submission 与判题可观测层
 
@@ -76,6 +79,7 @@
   - `run_stderr`
   - `exit_code`
   - `timed_out`
+  - `memory_exceeded`
   - `exec_stage`
   - `error_message`
   - `testcase_results`
