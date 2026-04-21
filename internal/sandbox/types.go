@@ -41,12 +41,13 @@ type RunRequest struct {
 }
 
 type RunResult struct {
-	Stdout       string
-	Stderr       string
-	ExitCode     int
-	RuntimeMS    int
-	MemoryKB     int
-	TimedOut     bool
-	RuntimeError bool
-	ErrorMessage string
+	Stdout         string
+	Stderr         string
+	ExitCode       int
+	RuntimeMS      int
+	MemoryKB       int
+	TimedOut       bool
+	MemoryExceeded bool
+	RuntimeError   bool
+	ErrorMessage   string
 }

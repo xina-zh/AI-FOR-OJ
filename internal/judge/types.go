@@ -28,18 +28,20 @@ type Result struct {
 	RunStderr       string
 	ExitCode        int
 	TimedOut        bool
+	MemoryExceeded  bool
 	ExecStage       string
 	ErrorMessage    string
 	TestCaseResults []TestCaseResult
 }
 
 type TestCaseResult struct {
-	TestCaseID uint
-	CaseIndex  int
-	Verdict    string
-	RuntimeMS  int
-	Stdout     string
-	Stderr     string
-	ExitCode   int
-	TimedOut   bool
+	TestCaseID     uint
+	CaseIndex      int
+	Verdict        string
+	RuntimeMS      int
+	Stdout         string
+	Stderr         string
+	ExitCode       int
+	TimedOut       bool
+	MemoryExceeded bool
 }

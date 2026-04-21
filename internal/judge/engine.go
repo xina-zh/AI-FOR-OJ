@@ -71,17 +71,19 @@ func (e *JudgeEngine) Judge(ctx context.Context, req Request) (Result, error) {
 		result.RunStderr = runResult.Stderr
 		result.ExitCode = runResult.ExitCode
 		result.TimedOut = runResult.TimedOut
+		result.MemoryExceeded = runResult.MemoryExceeded
 		result.RuntimeMS = max(result.RuntimeMS, runResult.RuntimeMS)
 		result.MemoryKB = max(result.MemoryKB, runResult.MemoryKB)
 
 		caseResult := TestCaseResult{
-			TestCaseID: testCase.ID,
-			CaseIndex:  index + 1,
-			RuntimeMS:  runResult.RuntimeMS,
-			Stdout:     runResult.Stdout,
-			Stderr:     runResult.Stderr,
-			ExitCode:   runResult.ExitCode,
-			TimedOut:   runResult.TimedOut,
+			TestCaseID:     testCase.ID,
+			CaseIndex:      index + 1,
+			RuntimeMS:      runResult.RuntimeMS,
+			Stdout:         runResult.Stdout,
+			Stderr:         runResult.Stderr,
+			ExitCode:       runResult.ExitCode,
+			TimedOut:       runResult.TimedOut,
+			MemoryExceeded: runResult.MemoryExceeded,
 		}
 
 		switch {
@@ -90,6 +92,12 @@ func (e *JudgeEngine) Judge(ctx context.Context, req Request) (Result, error) {
 			caseResult.Verdict = VerdictTimeLimitExceeded
 			result.TestCaseResults = append(result.TestCaseResults, caseResult)
 			result.ErrorMessage = pickErrorMessage("time limit exceeded", runResult.ErrorMessage, runResult.Stderr)
+			return result, nil
+		case runResult.MemoryExceeded:
+			result.Verdict = VerdictMemoryLimitExceeded
+			caseResult.Verdict = VerdictMemoryLimitExceeded
+			result.TestCaseResults = append(result.TestCaseResults, caseResult)
+			result.ErrorMessage = pickErrorMessage("memory limit exceeded", runResult.ErrorMessage, runResult.Stderr)
 			return result, nil
 		case runResult.RuntimeError:
 			result.Verdict = VerdictRuntimeError
