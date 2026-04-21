@@ -15,6 +15,7 @@ const (
 	DirectCodegenAgentName       = "direct_codegen"
 	DirectCodegenRepairAgentName = "direct_codegen_repair"
 	AnalyzeThenCodegenAgentName  = "analyze_then_codegen"
+	AdaptiveRepairV1AgentName    = "adaptive_repair_v1"
 )
 
 var ErrUnknownSolveAgent = errors.New("unknown solve agent")
@@ -51,6 +52,8 @@ func ResolveSolveAgentName(name string) (string, error) {
 		return DirectCodegenRepairAgentName, nil
 	case AnalyzeThenCodegenAgentName:
 		return AnalyzeThenCodegenAgentName, nil
+	case AdaptiveRepairV1AgentName:
+		return AdaptiveRepairV1AgentName, nil
 	default:
 		return "", ErrUnknownSolveAgent
 	}
@@ -69,6 +72,7 @@ func ListSolveAgents() []string {
 		DirectCodegenAgentName,
 		DirectCodegenRepairAgentName,
 		AnalyzeThenCodegenAgentName,
+		AdaptiveRepairV1AgentName,
 	}
 }
 
@@ -83,6 +87,8 @@ func ResolveSolveStrategy(name string) (SolveStrategy, error) {
 		return directCodegenRepairStrategy{}, nil
 	case AnalyzeThenCodegenAgentName:
 		return analyzeThenCodegenStrategy{}, nil
+	case AdaptiveRepairV1AgentName:
+		return adaptiveRepairV1Strategy{}, nil
 	default:
 		return directCodegenStrategy{}, nil
 	}
@@ -125,6 +131,8 @@ type analyzeThenCodegenStrategy struct{}
 
 type directCodegenRepairStrategy struct{}
 
+type adaptiveRepairV1Strategy struct{}
+
 func (directCodegenRepairStrategy) Name() string {
 	return DirectCodegenRepairAgentName
 }
@@ -143,6 +151,33 @@ func (directCodegenRepairStrategy) Execute(ctx context.Context, client llm.Clien
 
 	return SolveOutput{
 		AgentName:     DirectCodegenRepairAgentName,
+		Model:         effectiveModel(resp.Model, input.Model),
+		PromptPreview: finalPrompt,
+		RawResponse:   resp.Content,
+		TokenInput:    resp.InputTokens,
+		TokenOutput:   resp.OutputTokens,
+		LLMLatencyMS:  latencyMS,
+	}, nil
+}
+
+func (adaptiveRepairV1Strategy) Name() string {
+	return AdaptiveRepairV1AgentName
+}
+
+func (adaptiveRepairV1Strategy) Execute(ctx context.Context, client llm.Client, input SolveInput) (SolveOutput, error) {
+	finalPrompt := prompt.BuildSolvePrompt(input.Problem, input.PromptName)
+	resp, latencyMS, err := generateOnce(ctx, client, input.Model, finalPrompt)
+	if err != nil {
+		return SolveOutput{
+			AgentName:     AdaptiveRepairV1AgentName,
+			Model:         input.Model,
+			PromptPreview: finalPrompt,
+			LLMLatencyMS:  latencyMS,
+		}, err
+	}
+
+	return SolveOutput{
+		AgentName:     AdaptiveRepairV1AgentName,
 		Model:         effectiveModel(resp.Model, input.Model),
 		PromptPreview: finalPrompt,
 		RawResponse:   resp.Content,
