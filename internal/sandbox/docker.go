@@ -146,6 +146,8 @@ func (s *DockerSandbox) Run(ctx context.Context, req RunRequest) (RunResult, err
 	}
 
 	containerName := s.containerName("run")
+	defer s.forceRemoveContainer(containerName)
+
 	runTimeout := s.runTimeout(req.TimeLimitMS)
 	runCtx, cancel := context.WithTimeout(ctx, runTimeout)
 	defer cancel()
@@ -153,7 +155,6 @@ func (s *DockerSandbox) Run(ctx context.Context, req RunRequest) (RunResult, err
 	startedAt := time.Now()
 	command := []string{
 		"run",
-		"--rm",
 		"-i",
 		"--name", containerName,
 		"--network", "none",
@@ -172,6 +173,11 @@ func (s *DockerSandbox) Run(ctx context.Context, req RunRequest) (RunResult, err
 	}
 
 	runtimeMS := int(time.Since(startedAt).Milliseconds())
+	memoryExceeded := false
+	if !timedOut {
+		memoryExceeded = s.containerOOMKilled(context.Background(), containerName)
+	}
+
 	if timedOut {
 		return RunResult{
 			Stdout:    stdout,
@@ -181,6 +187,13 @@ func (s *DockerSandbox) Run(ctx context.Context, req RunRequest) (RunResult, err
 			MemoryKB:  0,
 			TimedOut:  true,
 		}, nil
+	}
+
+	if memoryExceeded {
+		result := runResultForOOM(stderr, exitCode, req.MemoryLimitMB)
+		result.Stdout = stdout
+		result.RuntimeMS = runtimeMS
+		return result, nil
 	}
 
 	if exitCode == dockerInfraExit {
@@ -196,6 +209,45 @@ func (s *DockerSandbox) Run(ctx context.Context, req RunRequest) (RunResult, err
 		RuntimeError: exitCode != 0,
 		ErrorMessage: strings.TrimSpace(stderr),
 	}, nil
+}
+
+func parseDockerBool(raw string) bool {
+	return strings.TrimSpace(raw) == "true"
+}
+
+func runResultForOOM(stderr string, exitCode int, memoryLimitMB int) RunResult {
+	if memoryLimitMB <= 0 {
+		memoryLimitMB = 256
+	}
+	return RunResult{
+		Stderr:         stderr,
+		ExitCode:       exitCode,
+		MemoryKB:       memoryLimitMB * 1024,
+		MemoryExceeded: true,
+		ErrorMessage:   "memory limit exceeded",
+	}
+}
+
+func (s *DockerSandbox) containerOOMKilled(ctx context.Context, containerName string) bool {
+	inspectCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(
+		inspectCtx,
+		"docker",
+		"inspect",
+		"--format",
+		"{{.State.OOMKilled}}",
+		containerName,
+	)
+	output, err := cmd.Output()
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("inspect run container oom state failed", "container_name", containerName, "error", err)
+		}
+		return false
+	}
+	return parseDockerBool(string(output))
 }
 
 func (s *DockerSandbox) Cleanup(_ context.Context, artifactID string) error {
