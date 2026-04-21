@@ -36,17 +36,35 @@ type AISolveInput struct {
 }
 
 type AISolveOutput struct {
-	AISolveRunID   uint   `json:"ai_solve_run_id"`
-	ProblemID      uint   `json:"problem_id"`
-	Model          string `json:"model,omitempty"`
-	PromptName     string `json:"prompt_name"`
-	AgentName      string `json:"agent_name"`
-	PromptPreview  string `json:"prompt_preview"`
-	RawResponse    string `json:"raw_response,omitempty"`
-	ExtractedCode  string `json:"extracted_code,omitempty"`
-	SubmissionID   uint   `json:"submission_id"`
-	Verdict        string `json:"verdict,omitempty"`
-	ErrorMessage   string `json:"error_message,omitempty"`
+	AISolveRunID   uint                   `json:"ai_solve_run_id"`
+	ProblemID      uint                   `json:"problem_id"`
+	Model          string                 `json:"model,omitempty"`
+	PromptName     string                 `json:"prompt_name"`
+	AgentName      string                 `json:"agent_name"`
+	PromptPreview  string                 `json:"prompt_preview"`
+	RawResponse    string                 `json:"raw_response,omitempty"`
+	ExtractedCode  string                 `json:"extracted_code,omitempty"`
+	SubmissionID   uint                   `json:"submission_id"`
+	Verdict        string                 `json:"verdict,omitempty"`
+	ErrorMessage   string                 `json:"error_message,omitempty"`
+	AttemptCount   int                    `json:"attempt_count"`
+	FailureType    string                 `json:"failure_type,omitempty"`
+	StrategyPath   string                 `json:"strategy_path,omitempty"`
+	TokenInput     int64                  `json:"token_input"`
+	TokenOutput    int64                  `json:"token_output"`
+	LLMLatencyMS   int                    `json:"llm_latency_ms"`
+	TotalLatencyMS int                    `json:"total_latency_ms"`
+	Attempts       []AISolveAttemptOutput `json:"attempts,omitempty"`
+}
+
+type AISolveAttemptOutput struct {
+	ID             uint   `json:"id"`
+	AttemptNo      int    `json:"attempt_no"`
+	Stage          string `json:"stage"`
+	Model          string `json:"model"`
+	Verdict        string `json:"verdict"`
+	FailureType    string `json:"failure_type"`
+	RepairReason   string `json:"repair_reason"`
 	TokenInput     int64  `json:"token_input"`
 	TokenOutput    int64  `json:"token_output"`
 	LLMLatencyMS   int    `json:"llm_latency_ms"`
@@ -56,6 +74,7 @@ type AISolveOutput struct {
 type AISolveService struct {
 	problems     repository.ProblemRepository
 	runs         repository.AISolveRunRepository
+	attempts     repository.AISolveAttemptRepository
 	llmClient    llm.Client
 	submissions  JudgeSubmitter
 	defaultModel string
@@ -67,10 +86,16 @@ func NewAISolveService(
 	llmClient llm.Client,
 	submissions JudgeSubmitter,
 	defaultModel string,
+	attempts ...repository.AISolveAttemptRepository,
 ) *AISolveService {
+	var attemptRepository repository.AISolveAttemptRepository
+	if len(attempts) > 0 {
+		attemptRepository = attempts[0]
+	}
 	return &AISolveService{
 		problems:     problems,
 		runs:         runs,
+		attempts:     attemptRepository,
 		llmClient:    llmClient,
 		submissions:  submissions,
 		defaultModel: defaultModel,
@@ -113,6 +138,10 @@ func (s *AISolveService) Solve(ctx context.Context, input AISolveInput) (*AISolv
 	problem, err := s.problems.GetByID(solveCtx, input.ProblemID)
 	if err != nil {
 		return s.failRun(solveCtx, run, output, startedAt, err.Error(), err)
+	}
+
+	if resolvedAgentName == agent.AdaptiveRepairV1AgentName {
+		return s.solveAdaptiveRepair(solveCtx, input.ProblemID, problem, run, output, startedAt, resolvedModel, resolvedPromptName)
 	}
 
 	strategy, err := agent.ResolveSolveStrategy(resolvedAgentName)
@@ -178,6 +207,65 @@ func (s *AISolveService) Solve(ctx context.Context, input AISolveInput) (*AISolv
 
 func (s *AISolveService) GetRun(ctx context.Context, runID uint) (*model.AISolveRun, error) {
 	return s.runs.GetByID(ctx, runID)
+}
+
+func (s *AISolveService) solveAdaptiveRepair(
+	ctx context.Context,
+	problemID uint,
+	problem *model.Problem,
+	run *model.AISolveRun,
+	output *AISolveOutput,
+	startedAt time.Time,
+	resolvedModel string,
+	resolvedPromptName string,
+) (*AISolveOutput, error) {
+	coordinator := agent.AdaptiveRepairCoordinator{MaxAttempts: maxAISolveAttempts}
+	coordinatorOutput, err := coordinator.Execute(
+		ctx,
+		s.llmClient,
+		agent.SolveInput{
+			Problem:    problem,
+			Model:      resolvedModel,
+			PromptName: resolvedPromptName,
+		},
+		adaptiveAgentJudgeSubmitter{
+			submitter: s.submissions,
+			input: JudgeSubmissionInput{
+				ProblemID:  problemID,
+				Language:   model.LanguageCPP17,
+				SourceType: model.SourceTypeAI,
+			},
+		},
+		aiSolveAttemptRecorder{repo: s.attempts, runID: run.ID},
+	)
+	s.applyAdaptiveCoordinatorOutput(run, output, coordinatorOutput)
+	if err != nil {
+		switch {
+		case errors.Is(err, agent.ErrAdaptiveCodeNotExtracted):
+			return s.failRun(ctx, run, output, startedAt, ErrAISolveCodeNotExtracted.Error(), ErrAISolveCodeNotExtracted)
+		case len(coordinatorOutput.Attempts) == 0:
+			return s.failRun(ctx, run, output, startedAt, fmt.Sprintf("%v: %v", ErrAISolveLLMFailed, err), fmt.Errorf("%w: %v", ErrAISolveLLMFailed, err))
+		default:
+			return s.failRun(ctx, run, output, startedAt, err.Error(), err)
+		}
+	}
+
+	run.Status = model.AISolveRunStatusSuccess
+	run.TotalLatencyMS = elapsedMS(startedAt)
+	if run.TotalLatencyMS < coordinatorOutput.TotalLatencyMS {
+		run.TotalLatencyMS = coordinatorOutput.TotalLatencyMS
+	}
+	output.TotalLatencyMS = run.TotalLatencyMS
+	if err := s.persistTerminalRun(run); err != nil {
+		syncAISolveOutputFromRun(output, run)
+		return output, fmt.Errorf("update ai solve run: %w", err)
+	}
+	syncAISolveOutputFromRun(output, run)
+	output.SubmissionID = coordinatorOutput.SubmissionID
+	output.Verdict = coordinatorOutput.Verdict
+	output.ErrorMessage = coordinatorOutput.ErrorMessage
+	output.Attempts = coordinatorAttemptsToOutput(coordinatorOutput.Attempts)
+	return output, nil
 }
 
 func (s *AISolveService) failRun(
@@ -254,6 +342,47 @@ func (s *AISolveService) applyAttemptLLMOutput(
 	output.LLMLatencyMS = run.LLMLatencyMS
 }
 
+func (s *AISolveService) applyAdaptiveCoordinatorOutput(
+	run *model.AISolveRun,
+	output *AISolveOutput,
+	coordinatorOutput agent.CoordinatorOutput,
+) {
+	run.Model = firstNonEmpty(coordinatorOutput.Model, run.Model)
+	run.AgentName = agent.AdaptiveRepairV1AgentName
+	run.PromptPreview = truncateForPreview(coordinatorOutput.PromptPreview, 800)
+	run.RawResponse = coordinatorOutput.RawResponse
+	run.ExtractedCode = coordinatorOutput.ExtractedCode
+	run.Verdict = coordinatorOutput.Verdict
+	run.ErrorMessage = coordinatorOutput.ErrorMessage
+	run.TokenInput = coordinatorOutput.TokenInput
+	run.TokenOutput = coordinatorOutput.TokenOutput
+	run.LLMLatencyMS = coordinatorOutput.LLMLatencyMS
+	run.TotalLatencyMS = coordinatorOutput.TotalLatencyMS
+	run.AttemptCount = coordinatorOutput.AttemptCount
+	run.FailureType = coordinatorOutput.FailureType
+	run.StrategyPath = coordinatorOutput.StrategyPath
+	if coordinatorOutput.SubmissionID != 0 {
+		run.SubmissionID = &coordinatorOutput.SubmissionID
+	}
+
+	output.Model = run.Model
+	output.AgentName = run.AgentName
+	output.PromptPreview = run.PromptPreview
+	output.RawResponse = truncateForPreview(coordinatorOutput.RawResponse, 4000)
+	output.ExtractedCode = coordinatorOutput.ExtractedCode
+	output.SubmissionID = coordinatorOutput.SubmissionID
+	output.Verdict = coordinatorOutput.Verdict
+	output.ErrorMessage = coordinatorOutput.ErrorMessage
+	output.TokenInput = coordinatorOutput.TokenInput
+	output.TokenOutput = coordinatorOutput.TokenOutput
+	output.LLMLatencyMS = coordinatorOutput.LLMLatencyMS
+	output.TotalLatencyMS = coordinatorOutput.TotalLatencyMS
+	output.AttemptCount = coordinatorOutput.AttemptCount
+	output.FailureType = coordinatorOutput.FailureType
+	output.StrategyPath = coordinatorOutput.StrategyPath
+	output.Attempts = coordinatorAttemptsToOutput(coordinatorOutput.Attempts)
+}
+
 func (s *AISolveService) submitAttempt(
 	ctx context.Context,
 	problemID uint,
@@ -283,6 +412,60 @@ func (s *AISolveService) submitAttempt(
 type adaptiveJudgeSubmitterAdapter struct {
 	submitter JudgeSubmitter
 	input     JudgeSubmissionInput
+}
+
+type adaptiveAgentJudgeSubmitter struct {
+	submitter JudgeSubmitter
+	input     JudgeSubmissionInput
+}
+
+func (a adaptiveAgentJudgeSubmitter) Submit(ctx context.Context, sourceCode string) (*agent.JudgeResult, error) {
+	if strings.TrimSpace(sourceCode) == "" {
+		return nil, ErrAISolveCodeNotExtracted
+	}
+
+	input := a.input
+	input.SourceCode = sourceCode
+	output, err := a.submitter.Submit(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	if output == nil {
+		return &agent.JudgeResult{}, nil
+	}
+	return &agent.JudgeResult{
+		SubmissionID: output.SubmissionID,
+		Verdict:      output.Verdict,
+		ErrorMessage: output.ErrorMessage,
+		Feedback:     buildRepairFeedback(output),
+	}, nil
+}
+
+type aiSolveAttemptRecorder struct {
+	repo  repository.AISolveAttemptRepository
+	runID uint
+}
+
+func (r aiSolveAttemptRecorder) RecordAttempt(ctx context.Context, attempt agent.AttemptRecord) error {
+	if r.repo == nil {
+		return nil
+	}
+	return r.repo.Create(ctx, &model.AISolveAttempt{
+		AISolveRunID:   r.runID,
+		AttemptNo:      attempt.AttemptNo,
+		Stage:          attempt.Stage,
+		Model:          attempt.Model,
+		PromptPreview:  truncateForPreview(attempt.PromptPreview, 800),
+		RawResponse:    attempt.RawResponse,
+		ExtractedCode:  attempt.ExtractedCode,
+		Verdict:        attempt.Verdict,
+		FailureType:    attempt.FailureType,
+		RepairReason:   attempt.RepairReason,
+		TokenInput:     attempt.TokenInput,
+		TokenOutput:    attempt.TokenOutput,
+		LLMLatencyMS:   attempt.LLMLatencyMS,
+		TotalLatencyMS: attempt.TotalLatencyMS,
+	})
 }
 
 func (a adaptiveJudgeSubmitterAdapter) Submit(ctx context.Context, sourceCode string) (*JudgeSubmissionOutput, error) {
@@ -389,6 +572,51 @@ func buildRepairFeedback(output *JudgeSubmissionOutput) string {
 	return strings.Join(parts, "\n\n")
 }
 
+func coordinatorAttemptsToOutput(attempts []agent.AttemptRecord) []AISolveAttemptOutput {
+	if len(attempts) == 0 {
+		return nil
+	}
+	outputs := make([]AISolveAttemptOutput, 0, len(attempts))
+	for _, attempt := range attempts {
+		outputs = append(outputs, AISolveAttemptOutput{
+			AttemptNo:      attempt.AttemptNo,
+			Stage:          attempt.Stage,
+			Model:          attempt.Model,
+			Verdict:        attempt.Verdict,
+			FailureType:    attempt.FailureType,
+			RepairReason:   attempt.RepairReason,
+			TokenInput:     attempt.TokenInput,
+			TokenOutput:    attempt.TokenOutput,
+			LLMLatencyMS:   attempt.LLMLatencyMS,
+			TotalLatencyMS: attempt.TotalLatencyMS,
+		})
+	}
+	return outputs
+}
+
+func modelAttemptsToOutput(attempts []model.AISolveAttempt) []AISolveAttemptOutput {
+	if len(attempts) == 0 {
+		return nil
+	}
+	outputs := make([]AISolveAttemptOutput, 0, len(attempts))
+	for _, attempt := range attempts {
+		outputs = append(outputs, AISolveAttemptOutput{
+			ID:             attempt.ID,
+			AttemptNo:      attempt.AttemptNo,
+			Stage:          attempt.Stage,
+			Model:          attempt.Model,
+			Verdict:        attempt.Verdict,
+			FailureType:    attempt.FailureType,
+			RepairReason:   attempt.RepairReason,
+			TokenInput:     attempt.TokenInput,
+			TokenOutput:    attempt.TokenOutput,
+			LLMLatencyMS:   attempt.LLMLatencyMS,
+			TotalLatencyMS: attempt.TotalLatencyMS,
+		})
+	}
+	return outputs
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		trimmed := strings.TrimSpace(value)
@@ -426,6 +654,10 @@ func syncAISolveOutputFromRun(output *AISolveOutput, run *model.AISolveRun) {
 	output.AgentName = agent.DisplaySolveAgentName(run.AgentName)
 	output.PromptPreview = run.PromptPreview
 	output.ErrorMessage = run.ErrorMessage
+	output.AttemptCount = run.AttemptCount
+	output.FailureType = run.FailureType
+	output.StrategyPath = run.StrategyPath
+	output.Attempts = modelAttemptsToOutput(run.Attempts)
 	output.TokenInput = run.TokenInput
 	output.TokenOutput = run.TokenOutput
 	output.LLMLatencyMS = run.LLMLatencyMS

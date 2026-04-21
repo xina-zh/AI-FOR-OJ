@@ -231,6 +231,9 @@ func toExperimentResponse(output *service.ExperimentOutput) dto.ExperimentRespon
 			Verdict:      run.Verdict,
 			Status:       run.Status,
 			ErrorMessage: run.ErrorMessage,
+			AttemptCount: run.AttemptCount,
+			FailureType:  run.FailureType,
+			StrategyPath: run.StrategyPath,
 			CreatedAt:    run.CreatedAt,
 		})
 	}

@@ -23,6 +23,9 @@ type ExperimentRunResponse struct {
 	Verdict      string    `json:"verdict,omitempty"`
 	Status       string    `json:"status"`
 	ErrorMessage string    `json:"error_message,omitempty"`
+	AttemptCount int       `json:"attempt_count"`
+	FailureType  string    `json:"failure_type,omitempty"`
+	StrategyPath string    `json:"strategy_path,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 

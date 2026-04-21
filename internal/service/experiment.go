@@ -40,6 +40,9 @@ type ExperimentRunOutput struct {
 	Verdict      string    `json:"verdict,omitempty"`
 	Status       string    `json:"status"`
 	ErrorMessage string    `json:"error_message,omitempty"`
+	AttemptCount int       `json:"attempt_count"`
+	FailureType  string    `json:"failure_type,omitempty"`
+	StrategyPath string    `json:"strategy_path,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -146,6 +149,9 @@ func (s *ExperimentService) Run(ctx context.Context, input RunExperimentInput) (
 					TokenOutput:    aiOutput.TokenOutput,
 					LLMLatencyMS:   aiOutput.LLMLatencyMS,
 					TotalLatencyMS: aiOutput.TotalLatencyMS,
+					AttemptCount:   aiOutput.AttemptCount,
+					FailureType:    aiOutput.FailureType,
+					StrategyPath:   aiOutput.StrategyPath,
 				}
 			}
 			if aiOutput.SubmissionID != 0 {
@@ -213,7 +219,7 @@ func toExperimentOutput(experiment *model.Experiment) *ExperimentOutput {
 		} else if run.Status == ExperimentRunStatusFailed {
 			output.VerdictDistribution.Add("")
 		}
-		output.Runs = append(output.Runs, ExperimentRunOutput{
+		item := ExperimentRunOutput{
 			ID:           run.ID,
 			ProblemID:    run.ProblemID,
 			AISolveRunID: run.AISolveRunID,
@@ -223,7 +229,13 @@ func toExperimentOutput(experiment *model.Experiment) *ExperimentOutput {
 			Status:       run.Status,
 			ErrorMessage: run.ErrorMessage,
 			CreatedAt:    run.CreatedAt,
-		})
+		}
+		if run.AISolveRun != nil {
+			item.AttemptCount = run.AISolveRun.AttemptCount
+			item.FailureType = run.AISolveRun.FailureType
+			item.StrategyPath = run.AISolveRun.StrategyPath
+		}
+		output.Runs = append(output.Runs, item)
 	}
 	return output
 }
