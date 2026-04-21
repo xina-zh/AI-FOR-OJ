@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -132,6 +133,19 @@ type ExperimentCompareOutput struct {
 	UpdatedAt             time.Time                             `json:"updated_at"`
 }
 
+type ExperimentCompareListInput struct {
+	Page     int
+	PageSize int
+}
+
+type ExperimentCompareListOutput struct {
+	Items      []ExperimentCompareOutput `json:"items"`
+	Page       int                       `json:"page"`
+	PageSize   int                       `json:"page_size"`
+	Total      int64                     `json:"total"`
+	TotalPages int                       `json:"total_pages"`
+}
+
 type ExperimentCompareService struct {
 	compares     repository.ExperimentCompareRepository
 	experiments  ExperimentRunner
@@ -205,6 +219,13 @@ func (s *ExperimentCompareService) Compare(ctx context.Context, input CompareExp
 		Model:      baselineModel,
 		PromptName: baselinePromptName,
 		AgentName:  baselineAgentName,
+		OnExperimentCreated: func(experimentID uint) error {
+			compare.BaselineExperimentID = &experimentID
+			if err := s.compares.Update(ctx, compare); err != nil {
+				return fmt.Errorf("update compare baseline experiment id: %w", err)
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		return s.failCompare(ctx, compare, err)
@@ -217,6 +238,13 @@ func (s *ExperimentCompareService) Compare(ctx context.Context, input CompareExp
 		Model:      candidateModel,
 		PromptName: candidatePromptName,
 		AgentName:  candidateAgentName,
+		OnExperimentCreated: func(experimentID uint) error {
+			compare.CandidateExperimentID = &experimentID
+			if err := s.compares.Update(ctx, compare); err != nil {
+				return fmt.Errorf("update compare candidate experiment id: %w", err)
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		return s.failCompare(ctx, compare, err)
@@ -316,6 +344,92 @@ func (s *ExperimentCompareService) Get(ctx context.Context, compareID uint) (*Ex
 		CandidateExperimentID: derefUint(compare.CandidateExperimentID),
 		BaselineSummary:       baseline,
 		CandidateSummary:      candidate,
+		BaselineDistribution:  verdictDistributionOf(baseline),
+		CandidateDistribution: verdictDistributionOf(candidate),
+		DeltaDistribution:     DiffVerdictDistribution(verdictDistributionOf(candidate), verdictDistributionOf(baseline)),
+		CostComparison:        costComparison,
+		ComparisonSummary:     buildExperimentCompareSummary(baseline, candidate, costComparison),
+		ImprovedCount:         improvedCount,
+		RegressedCount:        regressedCount,
+		ChangedNonACCount:     changedNonACCount,
+		ProblemSummaries:      problemSummaries,
+		HighlightedProblems:   highlightedProblems,
+		DeltaACCount:          compare.DeltaACCount,
+		DeltaFailedCount:      compare.DeltaFailedCount,
+		Status:                compare.Status,
+		ErrorMessage:          compare.ErrorMessage,
+		CreatedAt:             compare.CreatedAt,
+		UpdatedAt:             compare.UpdatedAt,
+	}, nil
+}
+
+func (s *ExperimentCompareService) List(ctx context.Context, input ExperimentCompareListInput) (*ExperimentCompareListOutput, error) {
+	compares, total, err := s.compares.List(ctx, repository.ExperimentCompareListQuery{
+		Page:     input.Page,
+		PageSize: input.PageSize,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list experiment compares: %w", err)
+	}
+
+	items := make([]ExperimentCompareOutput, 0, len(compares))
+	for _, compare := range compares {
+		output, err := s.toExperimentCompareListItem(ctx, compare)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, output)
+	}
+
+	return &ExperimentCompareListOutput{
+		Items:      items,
+		Page:       input.Page,
+		PageSize:   input.PageSize,
+		Total:      total,
+		TotalPages: totalPages(total, input.PageSize),
+	}, nil
+}
+
+func (s *ExperimentCompareService) toExperimentCompareListItem(ctx context.Context, compare model.ExperimentCompare) (ExperimentCompareOutput, error) {
+	problemIDs, err := decodeProblemIDs(compare.ProblemIDs)
+	if err != nil {
+		return ExperimentCompareOutput{}, fmt.Errorf("decode compare problem ids: %w", err)
+	}
+
+	var baseline *ExperimentOutput
+	if compare.BaselineExperimentID != nil {
+		baseline, err = s.experiments.Get(ctx, *compare.BaselineExperimentID)
+		if err != nil {
+			return ExperimentCompareOutput{}, err
+		}
+	}
+
+	var candidate *ExperimentOutput
+	if compare.CandidateExperimentID != nil {
+		candidate, err = s.experiments.Get(ctx, *compare.CandidateExperimentID)
+		if err != nil {
+			return ExperimentCompareOutput{}, err
+		}
+	}
+
+	problemSummaries := buildCompareProblemSummaries(problemIDs, baseline, candidate)
+	improvedCount, regressedCount, changedNonACCount := summarizeCompareProblemChanges(problemSummaries)
+	highlightedProblems := buildHighlightedCompareProblems(problemSummaries)
+	costComparison := buildExperimentCompareCostComparison(baseline, candidate)
+
+	return ExperimentCompareOutput{
+		ID:                    compare.ID,
+		Name:                  compare.Name,
+		CompareDimension:      compare.CompareDimension,
+		BaselineValue:         compare.BaselineValue,
+		CandidateValue:        compare.CandidateValue,
+		BaselinePromptName:    prompt.DisplaySolvePromptName(compare.BaselinePromptName),
+		CandidatePromptName:   prompt.DisplaySolvePromptName(compare.CandidatePromptName),
+		BaselineAgentName:     agent.DisplaySolveAgentName(compare.BaselineAgentName),
+		CandidateAgentName:    agent.DisplaySolveAgentName(compare.CandidateAgentName),
+		ProblemIDs:            problemIDs,
+		BaselineExperimentID:  derefUint(compare.BaselineExperimentID),
+		CandidateExperimentID: derefUint(compare.CandidateExperimentID),
 		BaselineDistribution:  verdictDistributionOf(baseline),
 		CandidateDistribution: verdictDistributionOf(candidate),
 		DeltaDistribution:     DiffVerdictDistribution(verdictDistributionOf(candidate), verdictDistributionOf(baseline)),
@@ -505,6 +619,13 @@ func defaultCompareName(name string) string {
 		return name
 	}
 	return "compare-experiment-" + time.Now().UTC().Format("20060102-150405")
+}
+
+func totalPages(total int64, pageSize int) int {
+	if total <= 0 || pageSize <= 0 {
+		return 0
+	}
+	return int(math.Ceil(float64(total) / float64(pageSize)))
 }
 
 func derefUint(value *uint) uint {

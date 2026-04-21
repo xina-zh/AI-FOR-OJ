@@ -108,6 +108,20 @@ func (h *ProblemHandler) Get(c *gin.Context) {
 	})
 }
 
+func (h *ProblemHandler) Delete(c *gin.Context) {
+	problemID, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+
+	if err := h.service.Delete(c.Request.Context(), problemID); err != nil {
+		handleProblemError(c, err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
 func (h *ProblemHandler) CreateTestCase(c *gin.Context) {
 	problemID, ok := parseUintParam(c, "id")
 	if !ok {

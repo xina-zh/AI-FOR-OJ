@@ -1,5 +1,7 @@
 cat > .gitignore <<'EOF'
 .codex
+.agent/
+.agents/
 # binaries
 bin/
 dist/
@@ -32,3 +34,4 @@ configs/config.yaml
 scripts/_pycache_/import_problems.cpython-310.pyc
 
 /problems
+.worktrees/

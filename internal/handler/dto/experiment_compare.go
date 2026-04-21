@@ -71,3 +71,11 @@ type ExperimentCompareResponse struct {
 	CreatedAt             time.Time                                     `json:"created_at"`
 	UpdatedAt             time.Time                                     `json:"updated_at"`
 }
+
+type ExperimentCompareListResponse struct {
+	Items      []ExperimentCompareResponse `json:"items"`
+	Page       int                         `json:"page"`
+	PageSize   int                         `json:"page_size"`
+	Total      int64                       `json:"total"`
+	TotalPages int                         `json:"total_pages"`
+}

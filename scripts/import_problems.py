@@ -7,6 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -26,6 +27,7 @@ DEFAULT_TIME_LIMIT_MS = 1000
 DEFAULT_MEMORY_LIMIT_MB = 256
 DEFAULT_DIFFICULTY = "unknown"
 DEFAULT_TAGS = ""
+LIMIT_VALUE_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*([A-Za-z]+)?")
 
 
 class ImportErrorDetail(Exception):
@@ -155,15 +157,13 @@ def parse_problem_dir(problem_dir: Path) -> ParsedProblem:
     if missing_sections:
         raise ImportErrorDetail(f"missing required statement sections: {', '.join(missing_sections)}")
 
-    time_limit_ms = parse_int_or_default(
+    time_limit_ms = parse_time_limit_ms(
         sections.get("Time Limit", ""),
         DEFAULT_TIME_LIMIT_MS,
-        "Time Limit",
     )
-    memory_limit_mb = parse_int_or_default(
+    memory_limit_mb = parse_memory_limit_mb(
         sections.get("Memory Limit", ""),
         DEFAULT_MEMORY_LIMIT_MB,
-        "Memory Limit",
     )
 
     sample_input = normalize_text_block(sections["Sample Input"])
@@ -212,19 +212,52 @@ def parse_statement_sections(statement_text: str) -> Dict[str, str]:
     return {name: "\n".join(content).strip("\n") for name, content in sections.items()}
 
 
-def parse_int_or_default(raw: str, default_value: int, field_name: str) -> int:
+def parse_time_limit_ms(raw: str, default_value: int) -> int:
+    number, unit = parse_limit_value(raw, default_value, "Time Limit")
+    if unit in {"", "ms", "msec", "millisecond", "milliseconds"}:
+        value = number
+    elif unit in {"s", "sec", "secs", "second", "seconds"}:
+        value = number * Decimal(1000)
+    else:
+        raise ImportErrorDetail(f"unsupported Time Limit unit: {unit!r}")
+
+    return ceil_decimal_to_int(value)
+
+
+def parse_memory_limit_mb(raw: str, default_value: int) -> int:
+    number, unit = parse_limit_value(raw, default_value, "Memory Limit")
+    if unit in {"", "m", "mb", "mib"}:
+        value = number
+    elif unit in {"k", "kb", "kib"}:
+        value = number / Decimal(1024)
+    elif unit in {"g", "gb", "gib"}:
+        value = number * Decimal(1024)
+    else:
+        raise ImportErrorDetail(f"unsupported Memory Limit unit: {unit!r}")
+
+    return ceil_decimal_to_int(value)
+
+
+def parse_limit_value(raw: str, default_value: int, field_name: str) -> Tuple[Decimal, str]:
     value = raw.strip()
     if not value:
-        return default_value
+        return Decimal(default_value), ""
 
-    match = re.search(r"-?\d+", value)
+    match = LIMIT_VALUE_RE.search(value)
     if not match:
         raise ImportErrorDetail(f"failed to parse {field_name}: {value!r}")
 
     try:
-        return int(match.group(0))
-    except ValueError as exc:  # pragma: no cover - defensive fallback
+        number = Decimal(match.group(1))
+    except InvalidOperation as exc:  # pragma: no cover - defensive fallback
         raise ImportErrorDetail(f"failed to parse {field_name}: {value!r}") from exc
+
+    unit = (match.group(2) or "").lower()
+    return number, unit
+
+
+def ceil_decimal_to_int(value: Decimal) -> int:
+    return int(value.to_integral_value(rounding=ROUND_CEILING))
 
 
 def load_testcases(problem_dir: Path, sample_input: str, sample_output: str) -> List[ParsedTestCase]:

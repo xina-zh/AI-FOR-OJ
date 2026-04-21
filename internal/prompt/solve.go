@@ -39,6 +39,14 @@ func DisplaySolvePromptName(name string) string {
 	return trimmed
 }
 
+func ListSolvePrompts() []string {
+	return []string{
+		DefaultSolvePromptName,
+		CPP17MinimalSolvePromptName,
+		StrictCPP17SolvePromptName,
+	}
+}
+
 func BuildSolvePrompt(problem *model.Problem, promptName string) string {
 	switch promptName {
 	case CPP17MinimalSolvePromptName:

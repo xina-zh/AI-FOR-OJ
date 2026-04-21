@@ -94,6 +94,40 @@ func (h *ExperimentHandler) Compare(c *gin.Context) {
 	c.JSON(http.StatusCreated, toExperimentCompareResponse(output))
 }
 
+func (h *ExperimentHandler) ListCompare(c *gin.Context) {
+	page, ok := parsePositiveIntQuery(c, "page", 1)
+	if !ok {
+		return
+	}
+	pageSize, ok := parsePositiveIntQuery(c, "page_size", 20)
+	if !ok {
+		return
+	}
+
+	output, err := h.compareService.List(c.Request.Context(), service.ExperimentCompareListInput{
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	items := make([]dto.ExperimentCompareResponse, 0, len(output.Items))
+	for _, item := range output.Items {
+		item := item
+		items = append(items, toExperimentCompareResponse(&item))
+	}
+
+	c.JSON(http.StatusOK, dto.ExperimentCompareListResponse{
+		Items:      items,
+		Page:       output.Page,
+		PageSize:   output.PageSize,
+		Total:      output.Total,
+		TotalPages: output.TotalPages,
+	})
+}
+
 func (h *ExperimentHandler) Repeat(c *gin.Context) {
 	var req dto.RepeatExperimentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

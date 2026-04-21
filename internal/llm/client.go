@@ -46,6 +46,16 @@ type GenerateResponse struct {
 	OutputTokens int64
 }
 
+type openAICompatibleEndpoint struct {
+	baseURL string
+	apiKey  string
+}
+
+type modelEndpointRoute struct {
+	modelPrefix string
+	endpoint    openAICompatibleEndpoint
+}
+
 func NewClient(cfg config.LLMConfig, logger *slog.Logger) (Client, error) {
 	switch cfg.Provider {
 	case "", ProviderMock:
@@ -57,18 +67,34 @@ func NewClient(cfg config.LLMConfig, logger *slog.Logger) (Client, error) {
 		if strings.TrimSpace(cfg.APIKey) == "" {
 			return nil, fmt.Errorf("llm api key is required when provider=%s", ProviderOpenAICompatible)
 		}
-		baseURL := strings.TrimRight(defaultString(cfg.BaseURL, "https://api.openai.com/v1"), "/")
-		if _, err := url.ParseRequestURI(baseURL); err != nil {
-			return nil, fmt.Errorf("invalid llm base url %q: %w", baseURL, err)
+		defaultEndpoint, err := newOpenAICompatibleEndpoint(defaultString(cfg.BaseURL, "https://api.openai.com/v1"), cfg.APIKey)
+		if err != nil {
+			return nil, err
 		}
 		timeout := cfg.Timeout
 		if timeout <= 0 {
 			timeout = 60 * time.Second
 		}
+
+		var routes []modelEndpointRoute
+		if strings.TrimSpace(cfg.GLMBaseURL) != "" || strings.TrimSpace(cfg.GLMAPIKey) != "" || strings.TrimSpace(cfg.GLMModelPrefix) != "" {
+			if strings.TrimSpace(cfg.GLMAPIKey) == "" {
+				return nil, fmt.Errorf("llm glm api key is required when glm route is configured")
+			}
+			glmEndpoint, err := newOpenAICompatibleEndpoint(cfg.GLMBaseURL, cfg.GLMAPIKey)
+			if err != nil {
+				return nil, fmt.Errorf("invalid llm glm route: %w", err)
+			}
+			routes = append(routes, modelEndpointRoute{
+				modelPrefix: defaultString(cfg.GLMModelPrefix, "glm-"),
+				endpoint:    glmEndpoint,
+			})
+		}
+
 		return &OpenAICompatibleClient{
-			baseURL: baseURL,
-			apiKey:  cfg.APIKey,
-			model:   cfg.Model,
+			endpoint: defaultEndpoint,
+			routes:   routes,
+			model:    cfg.Model,
 			client: &http.Client{
 				Timeout:   timeout,
 				Transport: newOpenAICompatibleTransport(),
@@ -95,11 +121,11 @@ func (c *MockClient) Generate(_ context.Context, req GenerateRequest) (GenerateR
 }
 
 type OpenAICompatibleClient struct {
-	baseURL string
-	apiKey  string
-	model   string
-	client  *http.Client
-	logger  *slog.Logger
+	endpoint openAICompatibleEndpoint
+	routes   []modelEndpointRoute
+	model    string
+	client   *http.Client
+	logger   *slog.Logger
 }
 
 type openAICompatibleRequest struct {
@@ -128,9 +154,11 @@ type openAICompatibleResponse struct {
 }
 
 func (c *OpenAICompatibleClient) Generate(ctx context.Context, req GenerateRequest) (GenerateResponse, error) {
-	requestURL := c.baseURL + "/chat/completions"
+	resolvedModel := effectiveModel(req.Model, c.model)
+	endpoint := c.endpointForModel(resolvedModel)
+	requestURL := endpoint.baseURL + "/chat/completions"
 	requestBody := openAICompatibleRequest{
-		Model: effectiveModel(req.Model, c.model),
+		Model: resolvedModel,
 		Messages: []openAICompatibleMessage{
 			{
 				Role:    "system",
@@ -148,12 +176,12 @@ func (c *OpenAICompatibleClient) Generate(ctx context.Context, req GenerateReque
 		return GenerateResponse{}, fmt.Errorf("marshal llm request: %w", err)
 	}
 
-	respBody, parsed, err := c.doChatCompletion(ctx, requestURL, body)
+	respBody, parsed, err := c.doChatCompletion(ctx, endpoint, requestURL, body)
 	if err != nil {
 		if c.logger != nil {
 			c.logger.Warn("llm generation failed",
 				"provider", ProviderOpenAICompatible,
-				"model", effectiveModel(req.Model, c.model),
+				"model", resolvedModel,
 				"url", requestURL,
 				"error", err,
 			)
@@ -188,16 +216,31 @@ func (c *OpenAICompatibleClient) Generate(ctx context.Context, req GenerateReque
 	}, nil
 }
 
+func (c *OpenAICompatibleClient) endpointForModel(model string) openAICompatibleEndpoint {
+	model = strings.TrimSpace(model)
+	for _, route := range c.routes {
+		if strings.HasPrefix(model, strings.TrimSpace(route.modelPrefix)) {
+			return route.endpoint
+		}
+	}
+	return c.endpoint
+}
+
 type parsedOpenAICompatibleResponse struct {
 	openAICompatibleResponse
 	StatusCode int
 }
 
-func (c *OpenAICompatibleClient) doChatCompletion(ctx context.Context, requestURL string, body []byte) ([]byte, parsedOpenAICompatibleResponse, error) {
+func (c *OpenAICompatibleClient) doChatCompletion(
+	ctx context.Context,
+	endpoint openAICompatibleEndpoint,
+	requestURL string,
+	body []byte,
+) ([]byte, parsedOpenAICompatibleResponse, error) {
 	const maxAttempts = 5
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		respBody, parsed, err := c.doChatCompletionOnce(ctx, requestURL, body)
+		respBody, parsed, err := c.doChatCompletionOnce(ctx, endpoint, requestURL, body)
 		retryableStatus := err == nil && isRetryableStatusCode(parsed.StatusCode)
 		if err == nil && (!retryableStatus || attempt == maxAttempts) {
 			return respBody, parsed, nil
@@ -229,13 +272,18 @@ func (c *OpenAICompatibleClient) doChatCompletion(ctx context.Context, requestUR
 	return nil, parsedOpenAICompatibleResponse{}, fmt.Errorf("llm request failed url=%s: exhausted retries", requestURL)
 }
 
-func (c *OpenAICompatibleClient) doChatCompletionOnce(ctx context.Context, requestURL string, body []byte) ([]byte, parsedOpenAICompatibleResponse, error) {
+func (c *OpenAICompatibleClient) doChatCompletionOnce(
+	ctx context.Context,
+	endpoint openAICompatibleEndpoint,
+	requestURL string,
+	body []byte,
+) ([]byte, parsedOpenAICompatibleResponse, error) {
 	requestBodyPreview := truncateErrorBody(strings.TrimSpace(string(body)), 512)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, parsedOpenAICompatibleResponse{}, fmt.Errorf("build llm request url=%s: %w", requestURL, err)
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	httpReq.Header.Set("Authorization", "Bearer "+endpoint.apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
 	httpReq.Header.Set("User-Agent", "ai-for-oj/llm-client")
@@ -293,6 +341,17 @@ func (c *OpenAICompatibleClient) doChatCompletionOnce(ctx context.Context, reque
 	return respBody, parsedOpenAICompatibleResponse{
 		openAICompatibleResponse: parsed,
 		StatusCode:               resp.StatusCode,
+	}, nil
+}
+
+func newOpenAICompatibleEndpoint(baseURL, apiKey string) (openAICompatibleEndpoint, error) {
+	normalizedBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if _, err := url.ParseRequestURI(normalizedBaseURL); err != nil {
+		return openAICompatibleEndpoint{}, fmt.Errorf("invalid llm base url %q: %w", normalizedBaseURL, err)
+	}
+	return openAICompatibleEndpoint{
+		baseURL: normalizedBaseURL,
+		apiKey:  strings.TrimSpace(apiKey),
 	}, nil
 }
 

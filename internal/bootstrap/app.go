@@ -68,12 +68,13 @@ func Build(configPath string) (*Container, error) {
 	}
 	aiSolveService := service.NewAISolveService(problemRepository, aiSolveRunRepository, llmClient, judgeSubmissionService, cfg.LLM.Model)
 	aiHandler := handler.NewAIHandler(aiSolveService)
+	metaHandler := handler.NewMetaHandler(cfg.LLM.Model)
 	experimentService := service.NewExperimentService(experimentRepository, aiSolveService, cfg.LLM.Model)
 	experimentRepeatService := service.NewExperimentRepeatService(experimentRepeatRepository, experimentService, cfg.LLM.Model)
 	experimentCompareService := service.NewExperimentCompareService(experimentCompareRepository, experimentService, cfg.LLM.Model)
 	experimentHandler := handler.NewExperimentHandler(experimentService, experimentCompareService, experimentRepeatService)
 
-	router := runtime.NewRouter(cfg, logger, healthHandler, problemHandler, submissionHandler, aiHandler, experimentHandler)
+	router := runtime.NewRouter(cfg, logger, healthHandler, problemHandler, submissionHandler, aiHandler, metaHandler, experimentHandler)
 	server := runtime.NewApp(cfg, logger, router, func(context.Context) error {
 		return sqlDB.Close()
 	})

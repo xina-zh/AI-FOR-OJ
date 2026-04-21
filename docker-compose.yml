@@ -36,6 +36,9 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL}
       LLM_API_KEY: ${LLM_API_KEY}
       LLM_MODEL: ${LLM_MODEL}
+      LLM_GLM_BASE_URL: ${LLM_GLM_BASE_URL}
+      LLM_GLM_API_KEY: ${LLM_GLM_API_KEY}
+      LLM_GLM_MODEL_PREFIX: ${LLM_GLM_MODEL_PREFIX}
     ports:
       - "8080:8080"
     volumes:

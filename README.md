@@ -287,10 +287,19 @@ export LLM_API_KEY=your-api-key
 export LLM_MODEL=your-actual-model-name
 ```
 
+如果要继续沿用原来的 `model` 传参方式，但把 `glm-*` 模型切到智谱 API，可额外配置：
+
+```bash
+export LLM_GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+export LLM_GLM_API_KEY=your-zhipu-api-key
+export LLM_GLM_MODEL_PREFIX=glm-
+```
+
 说明：
 
 - 当前只接 `OpenAI-compatible /v1/chat/completions`
 - 模型名以中转站实际支持的名称为准
+- 配置 `LLM_GLM_*` 后，`glm-*` 会自动走智谱 API，其它模型仍走默认 `LLM_BASE_URL`
 - 每次 AI solve / experiment / compare / repeat 都会优先使用请求指定的 `model`
 - 未显式传入时，再 fallback 到默认 `LLM_MODEL`
 - 每次 AI solve 都会记录实际 `model`

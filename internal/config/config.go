@@ -70,12 +70,15 @@ type SandboxConfig struct {
 }
 
 type LLMConfig struct {
-	Provider     string        `yaml:"provider"`
-	BaseURL      string        `yaml:"base_url"`
-	APIKey       string        `yaml:"api_key"`
-	Model        string        `yaml:"model"`
-	Timeout      time.Duration `yaml:"timeout"`
-	MockResponse string        `yaml:"mock_response"`
+	Provider       string        `yaml:"provider"`
+	BaseURL        string        `yaml:"base_url"`
+	APIKey         string        `yaml:"api_key"`
+	Model          string        `yaml:"model"`
+	Timeout        time.Duration `yaml:"timeout"`
+	MockResponse   string        `yaml:"mock_response"`
+	GLMBaseURL     string        `yaml:"glm_base_url"`
+	GLMAPIKey      string        `yaml:"glm_api_key"`
+	GLMModelPrefix string        `yaml:"glm_model_prefix"`
 }
 
 func Load(path string) (Config, error) {
@@ -211,6 +214,9 @@ func applyEnvOverrides(cfg *Config) {
 	cfg.LLM.Model = getEnvString("LLM_MODEL", cfg.LLM.Model)
 	cfg.LLM.Timeout = getEnvDuration("LLM_TIMEOUT", cfg.LLM.Timeout)
 	cfg.LLM.MockResponse = getEnvString("LLM_MOCK_RESPONSE", cfg.LLM.MockResponse)
+	cfg.LLM.GLMBaseURL = getEnvString("LLM_GLM_BASE_URL", cfg.LLM.GLMBaseURL)
+	cfg.LLM.GLMAPIKey = getEnvString("LLM_GLM_API_KEY", cfg.LLM.GLMAPIKey)
+	cfg.LLM.GLMModelPrefix = getEnvString("LLM_GLM_MODEL_PREFIX", cfg.LLM.GLMModelPrefix)
 }
 
 func getEnvString(key, fallback string) string {

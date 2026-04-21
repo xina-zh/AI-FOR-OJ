@@ -33,6 +33,10 @@ func (r fakeProblemRepository) GetByIDWithTestCases(context.Context, uint) (*mod
 	return r.problem, r.err
 }
 
+func (r fakeProblemRepository) Delete(context.Context, uint) error {
+	return r.err
+}
+
 type fakeSubmissionRepository struct {
 	submission        *model.Submission
 	judgeResult       *model.JudgeResult

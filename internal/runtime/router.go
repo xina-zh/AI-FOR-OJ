@@ -16,6 +16,7 @@ func NewRouter(
 	problemHandler *handler.ProblemHandler,
 	submissionHandler *handler.SubmissionHandler,
 	aiHandler *handler.AIHandler,
+	metaHandler *handler.MetaHandler,
 	experimentHandler *handler.ExperimentHandler,
 ) *gin.Engine {
 	if cfg.App.Env != "local" {
@@ -31,6 +32,7 @@ func NewRouter(
 		router.POST("/api/v1/problems", problemHandler.Create)
 		router.GET("/api/v1/problems", problemHandler.List)
 		router.GET("/api/v1/problems/:id", problemHandler.Get)
+		router.DELETE("/api/v1/problems/:id", problemHandler.Delete)
 		router.POST("/api/v1/problems/:id/testcases", problemHandler.CreateTestCase)
 		router.GET("/api/v1/problems/:id/testcases", problemHandler.ListTestCases)
 	}
@@ -44,8 +46,12 @@ func NewRouter(
 		router.POST("/api/v1/ai/solve", aiHandler.Solve)
 		router.GET("/api/v1/ai/solve-runs/:id", aiHandler.GetRun)
 	}
+	if metaHandler != nil {
+		router.GET("/api/v1/meta/experiment-options", metaHandler.ExperimentOptions)
+	}
 	if experimentHandler != nil {
 		router.POST("/api/v1/experiments/compare", experimentHandler.Compare)
+		router.GET("/api/v1/experiments/compare", experimentHandler.ListCompare)
 		router.GET("/api/v1/experiments/compare/:id", experimentHandler.GetCompare)
 		router.POST("/api/v1/experiments/repeat", experimentHandler.Repeat)
 		router.GET("/api/v1/experiments/repeat/:id", experimentHandler.GetRepeat)

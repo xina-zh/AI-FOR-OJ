@@ -23,11 +23,12 @@ type AISolver interface {
 }
 
 type RunExperimentInput struct {
-	Name       string
-	ProblemIDs []uint
-	Model      string
-	PromptName string
-	AgentName  string
+	Name                string
+	ProblemIDs          []uint
+	Model               string
+	PromptName          string
+	AgentName           string
+	OnExperimentCreated func(experimentID uint) error
 }
 
 type ExperimentRunOutput struct {
@@ -113,6 +114,11 @@ func (s *ExperimentService) Run(ctx context.Context, input RunExperimentInput) (
 	if err := s.experiments.Create(ctx, experiment); err != nil {
 		return nil, fmt.Errorf("create experiment: %w", err)
 	}
+	if input.OnExperimentCreated != nil {
+		if err := input.OnExperimentCreated(experiment.ID); err != nil {
+			return nil, fmt.Errorf("notify experiment created: %w", err)
+		}
+	}
 
 	for index, problemID := range input.ProblemIDs {
 		aiOutput, err := s.aiSolver.Solve(ctx, AISolveInput{
@@ -162,6 +168,9 @@ func (s *ExperimentService) Run(ctx context.Context, input RunExperimentInput) (
 
 		if err := s.experiments.CreateRun(ctx, run); err != nil {
 			return nil, fmt.Errorf("create experiment run: %w", err)
+		}
+		if err := s.experiments.Update(ctx, experiment); err != nil {
+			return nil, fmt.Errorf("update experiment progress: %w", err)
 		}
 	}
 

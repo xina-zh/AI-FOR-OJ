@@ -15,6 +15,7 @@ import (
 type fakeExperimentRepository struct {
 	experiment *model.Experiment
 	runs       []*model.ExperimentRun
+	updates    []*model.Experiment
 	nextID     uint
 	getByID    *model.Experiment
 	err        error
@@ -39,6 +40,7 @@ func (r *fakeExperimentRepository) Update(_ context.Context, experiment *model.E
 	}
 	copied := *experiment
 	r.experiment = &copied
+	r.updates = append(r.updates, &copied)
 	if r.getByID == nil || r.getByID.ID == experiment.ID {
 		r.getByID = &copied
 		r.getByID.Runs = make([]model.ExperimentRun, 0, len(r.runs))
@@ -165,6 +167,18 @@ func TestExperimentServiceRun(t *testing.T) {
 
 	if output.Runs[0].AttemptNo != 1 || output.Runs[1].AttemptNo != 2 {
 		t.Fatalf("expected sequential attempt numbers, got %+v", output.Runs)
+	}
+	if len(repo.updates) < 3 {
+		t.Fatalf("expected per-run progress updates plus final update, got %d", len(repo.updates))
+	}
+	if repo.updates[0].Status != ExperimentStatusRunning || repo.updates[0].SuccessCount != 1 || repo.updates[0].ACCount != 1 {
+		t.Fatalf("expected first progress update after first run, got %+v", repo.updates[0])
+	}
+	if repo.updates[1].Status != ExperimentStatusRunning || repo.updates[1].SuccessCount != 2 || repo.updates[1].ACCount != 1 {
+		t.Fatalf("expected second progress update after second run, got %+v", repo.updates[1])
+	}
+	if repo.updates[len(repo.updates)-1].Status != ExperimentStatusCompleted {
+		t.Fatalf("expected final update to complete experiment, got %+v", repo.updates[len(repo.updates)-1])
 	}
 }
 

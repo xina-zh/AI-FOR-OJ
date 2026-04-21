@@ -9,9 +9,10 @@ import (
 )
 
 type fakeProblemWriteRepository struct {
-	problem *model.Problem
-	list    []model.Problem
-	err     error
+	problem   *model.Problem
+	list      []model.Problem
+	err       error
+	deletedID uint
 }
 
 func (r *fakeProblemWriteRepository) Create(_ context.Context, problem *model.Problem) error {
@@ -36,6 +37,18 @@ func (r *fakeProblemWriteRepository) GetByID(_ context.Context, problemID uint) 
 
 func (r *fakeProblemWriteRepository) GetByIDWithTestCases(_ context.Context, problemID uint) (*model.Problem, error) {
 	return r.GetByID(context.Background(), problemID)
+}
+
+func (r *fakeProblemWriteRepository) Delete(_ context.Context, problemID uint) error {
+	if r.err != nil {
+		return r.err
+	}
+	if r.problem == nil || r.problem.ID != problemID {
+		return repository.ErrProblemNotFound
+	}
+	r.deletedID = problemID
+	r.problem = nil
+	return nil
 }
 
 type fakeTestCaseRepository struct {
@@ -135,6 +148,31 @@ func TestProblemServiceListTestCasesReturnsProblemNotFound(t *testing.T) {
 	)
 
 	_, err := service.ListTestCases(context.Background(), 999)
+	if err != repository.ErrProblemNotFound {
+		t.Fatalf("expected err %v, got %v", repository.ErrProblemNotFound, err)
+	}
+}
+
+func TestProblemServiceDelete(t *testing.T) {
+	problemRepo := &fakeProblemWriteRepository{
+		problem: &model.Problem{BaseModel: model.BaseModel{ID: 42}, Title: "delete me"},
+	}
+	service := NewProblemService(problemRepo, &fakeTestCaseRepository{})
+
+	err := service.Delete(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("delete problem returned error: %v", err)
+	}
+
+	if problemRepo.deletedID != 42 {
+		t.Fatalf("expected deleted problem 42, got %d", problemRepo.deletedID)
+	}
+}
+
+func TestProblemServiceDeleteReturnsProblemNotFound(t *testing.T) {
+	service := NewProblemService(&fakeProblemWriteRepository{}, &fakeTestCaseRepository{})
+
+	err := service.Delete(context.Background(), 999)
 	if err != repository.ErrProblemNotFound {
 		t.Fatalf("expected err %v, got %v", repository.ErrProblemNotFound, err)
 	}

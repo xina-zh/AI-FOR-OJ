@@ -140,6 +140,10 @@ func (s *ProblemService) ListTestCases(ctx context.Context, problemID uint) ([]T
 	return outputs, nil
 }
 
+func (s *ProblemService) Delete(ctx context.Context, problemID uint) error {
+	return s.problems.Delete(ctx, problemID)
+}
+
 func toProblemOutput(problem *model.Problem) *ProblemOutput {
 	return &ProblemOutput{
 		ID:            problem.ID,

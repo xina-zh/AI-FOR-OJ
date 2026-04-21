@@ -15,6 +15,9 @@ import (
 type fakeExperimentCompareRepository struct {
 	created *model.ExperimentCompare
 	updated *model.ExperimentCompare
+	updates []*model.ExperimentCompare
+	list    []model.ExperimentCompare
+	total   int64
 	getByID *model.ExperimentCompare
 	nextID  uint
 	err     error
@@ -42,8 +45,23 @@ func (r *fakeExperimentCompareRepository) Update(_ context.Context, compare *mod
 	compare.UpdatedAt = time.Now().UTC()
 	copied := *compare
 	r.updated = &copied
+	r.updates = append(r.updates, &copied)
 	r.getByID = &copied
 	return nil
+}
+
+func (r *fakeExperimentCompareRepository) List(_ context.Context, query repository.ExperimentCompareListQuery) ([]model.ExperimentCompare, int64, error) {
+	if r.err != nil {
+		return nil, 0, r.err
+	}
+	if query.Page != 1 || query.PageSize != 10 {
+		return nil, 0, errors.New("unexpected list query")
+	}
+	total := r.total
+	if total == 0 {
+		total = int64(len(r.list))
+	}
+	return r.list, total, nil
 }
 
 func (r *fakeExperimentCompareRepository) GetByID(_ context.Context, compareID uint) (*model.ExperimentCompare, error) {
@@ -68,6 +86,11 @@ func (r *fakeExperimentRunner) Run(_ context.Context, input RunExperimentInput) 
 	index := len(r.runInputs) - 1
 	if index < len(r.runErrors) && r.runErrors[index] != nil {
 		return nil, r.runErrors[index]
+	}
+	if input.OnExperimentCreated != nil {
+		if err := input.OnExperimentCreated(r.runOutputs[index].ID); err != nil {
+			return nil, err
+		}
 	}
 	return r.runOutputs[index], nil
 }
@@ -341,6 +364,158 @@ func TestExperimentCompareServiceCompareCandidateFailure(t *testing.T) {
 	}
 	if runner.runInputs[0].AgentName != agent.DirectCodegenAgentName || runner.runInputs[1].AgentName != agent.AnalyzeThenCodegenAgentName {
 		t.Fatalf("expected compare to preserve distinct agent names before candidate failure, got %+v", runner.runInputs)
+	}
+}
+
+func TestExperimentCompareServiceComparePersistsChildExperimentIDsAsTheyStart(t *testing.T) {
+	repo := &fakeExperimentCompareRepository{}
+	runner := &fakeExperimentRunner{
+		runOutputs: []*ExperimentOutput{
+			{
+				ID:                  10,
+				Name:                "baseline",
+				ACCount:             1,
+				FailedCount:         0,
+				VerdictDistribution: VerdictDistribution{ACCount: 1},
+			},
+			{
+				ID:                  20,
+				Name:                "candidate",
+				ACCount:             1,
+				FailedCount:         0,
+				VerdictDistribution: VerdictDistribution{ACCount: 1},
+			},
+		},
+		getMap: map[uint]*ExperimentOutput{
+			10: {ID: 10, Name: "baseline", ACCount: 1, VerdictDistribution: VerdictDistribution{ACCount: 1}},
+			20: {ID: 20, Name: "candidate", ACCount: 1, VerdictDistribution: VerdictDistribution{ACCount: 1}},
+		},
+	}
+	service := NewExperimentCompareService(repo, runner, "mock-default")
+
+	_, err := service.Compare(context.Background(), CompareExperimentInput{
+		Name:           "compare-progress",
+		ProblemIDs:     []uint{1},
+		BaselineModel:  "mock-a",
+		CandidateModel: "mock-b",
+	})
+	if err != nil {
+		t.Fatalf("compare returned error: %v", err)
+	}
+
+	if len(repo.updates) < 3 {
+		t.Fatalf("expected baseline id, candidate id, and final updates, got %d", len(repo.updates))
+	}
+	first := repo.updates[0]
+	if first.BaselineExperimentID == nil || *first.BaselineExperimentID != 10 || first.CandidateExperimentID != nil || first.Status != model.ExperimentCompareStatusRunning {
+		t.Fatalf("expected first update to expose running baseline experiment id only, got %+v", first)
+	}
+	second := repo.updates[1]
+	if second.BaselineExperimentID == nil || *second.BaselineExperimentID != 10 ||
+		second.CandidateExperimentID == nil || *second.CandidateExperimentID != 20 ||
+		second.Status != model.ExperimentCompareStatusRunning {
+		t.Fatalf("expected second update to expose candidate experiment id while compare is running, got %+v", second)
+	}
+	final := repo.updates[len(repo.updates)-1]
+	if final.Status != model.ExperimentCompareStatusCompleted {
+		t.Fatalf("expected final update to complete compare, got %+v", final)
+	}
+}
+
+func TestExperimentCompareServiceList(t *testing.T) {
+	baselineID := uint(10)
+	candidateID := uint(20)
+	createdAt := time.Date(2026, 4, 20, 11, 0, 0, 0, time.UTC)
+	repo := &fakeExperimentCompareRepository{
+		list: []model.ExperimentCompare{
+			{
+				BaseModel:             model.BaseModel{ID: 7, CreatedAt: createdAt, UpdatedAt: createdAt},
+				Name:                  "compare-history",
+				CompareDimension:      ExperimentCompareDimensionModel,
+				BaselineValue:         "mock-a",
+				CandidateValue:        "mock-b",
+				BaselinePromptName:    prompt.DefaultSolvePromptName,
+				CandidatePromptName:   prompt.StrictCPP17SolvePromptName,
+				BaselineAgentName:     agent.DirectCodegenAgentName,
+				CandidateAgentName:    agent.AnalyzeThenCodegenAgentName,
+				ProblemIDs:            `[1,2]`,
+				BaselineExperimentID:  &baselineID,
+				CandidateExperimentID: &candidateID,
+				DeltaACCount:          1,
+				DeltaFailedCount:      -1,
+				Status:                model.ExperimentCompareStatusCompleted,
+			},
+		},
+		total: 1,
+	}
+	runner := &fakeExperimentRunner{
+		getMap: map[uint]*ExperimentOutput{
+			baselineID: {
+				ID:                  baselineID,
+				ACCount:             1,
+				VerdictDistribution: VerdictDistribution{ACCount: 1, WACount: 1},
+				CostSummary: ExperimentCostSummary{
+					TotalTokenInput:       100,
+					TotalTokenOutput:      50,
+					TotalTokens:           150,
+					AverageTotalTokens:    75,
+					TotalLatencyMS:        300,
+					AverageTotalLatencyMS: 150,
+					RunCount:              2,
+				},
+				Runs: []ExperimentRunOutput{
+					{ProblemID: 1, Verdict: "WA", Status: ExperimentRunStatusSuccess},
+					{ProblemID: 2, Verdict: "AC", Status: ExperimentRunStatusSuccess},
+				},
+			},
+			candidateID: {
+				ID:                  candidateID,
+				ACCount:             2,
+				VerdictDistribution: VerdictDistribution{ACCount: 2},
+				CostSummary: ExperimentCostSummary{
+					TotalTokenInput:       140,
+					TotalTokenOutput:      70,
+					TotalTokens:           210,
+					AverageTotalTokens:    105,
+					TotalLatencyMS:        360,
+					AverageTotalLatencyMS: 180,
+					RunCount:              2,
+				},
+				Runs: []ExperimentRunOutput{
+					{ProblemID: 1, Verdict: "AC", Status: ExperimentRunStatusSuccess},
+					{ProblemID: 2, Verdict: "AC", Status: ExperimentRunStatusSuccess},
+				},
+			},
+		},
+	}
+	service := NewExperimentCompareService(repo, runner, "mock-default")
+
+	output, err := service.List(context.Background(), ExperimentCompareListInput{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("list compares returned error: %v", err)
+	}
+
+	if output.Page != 1 || output.PageSize != 10 || output.Total != 1 || output.TotalPages != 1 {
+		t.Fatalf("unexpected pagination: %+v", output)
+	}
+	if len(output.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(output.Items))
+	}
+	item := output.Items[0]
+	if item.ID != 7 || item.Name != "compare-history" || item.BaselineExperimentID != baselineID || item.CandidateExperimentID != candidateID {
+		t.Fatalf("unexpected compare item: %+v", item)
+	}
+	if len(item.ProblemIDs) != 2 || item.ProblemIDs[0] != 1 || item.ProblemIDs[1] != 2 {
+		t.Fatalf("unexpected problem ids: %+v", item.ProblemIDs)
+	}
+	if item.CostComparison.DeltaTotalTokens != 60 || item.CostComparison.DeltaAverageTotalTokens != 30 {
+		t.Fatalf("expected list item cost comparison, got %+v", item.CostComparison)
+	}
+	if item.ComparisonSummary.TradeoffType != "improved_with_higher_cost" || !item.ComparisonSummary.CandidateBetterAC {
+		t.Fatalf("expected list item comparison summary, got %+v", item.ComparisonSummary)
+	}
+	if item.ImprovedCount != 1 || len(item.ProblemSummaries) != 2 {
+		t.Fatalf("expected list item problem summaries, got %+v", item)
 	}
 }
 

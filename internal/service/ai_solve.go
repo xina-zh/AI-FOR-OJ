@@ -216,7 +216,7 @@ func extractCPPCode(raw string) string {
 	if matches := genericFencePattern.FindStringSubmatch(raw); len(matches) >= 2 {
 		return strings.TrimSpace(matches[1])
 	}
-	return strings.TrimSpace(strings.Trim(raw, "`"))
+	return ""
 }
 
 func truncateForPreview(value string, limit int) string {
@@ -262,24 +262,37 @@ func (s *AISolveService) submitAttempt(
 	output *AISolveOutput,
 	startedAt time.Time,
 ) (*JudgeSubmissionOutput, error) {
-	if strings.TrimSpace(code) == "" {
-		return nil, s.wrapFailure(ctx, run, output, startedAt, ErrAISolveCodeNotExtracted.Error(), ErrAISolveCodeNotExtracted)
-	}
-
 	run.ExtractedCode = code
 	output.ExtractedCode = code
 
-	judgeOutput, err := s.submissions.Submit(ctx, JudgeSubmissionInput{
-		ProblemID:  problemID,
-		SourceCode: code,
-		Language:   model.LanguageCPP17,
-		SourceType: model.SourceTypeAI,
-	})
+	judgeOutput, err := adaptiveJudgeSubmitterAdapter{
+		submitter: s.submissions,
+		input: JudgeSubmissionInput{
+			ProblemID:  problemID,
+			Language:   model.LanguageCPP17,
+			SourceType: model.SourceTypeAI,
+		},
+	}.Submit(ctx, code)
 	if err != nil {
 		return nil, s.wrapFailure(ctx, run, output, startedAt, err.Error(), err)
 	}
 
 	return judgeOutput, nil
+}
+
+type adaptiveJudgeSubmitterAdapter struct {
+	submitter JudgeSubmitter
+	input     JudgeSubmissionInput
+}
+
+func (a adaptiveJudgeSubmitterAdapter) Submit(ctx context.Context, sourceCode string) (*JudgeSubmissionOutput, error) {
+	if strings.TrimSpace(sourceCode) == "" {
+		return nil, ErrAISolveCodeNotExtracted
+	}
+
+	input := a.input
+	input.SourceCode = sourceCode
+	return a.submitter.Submit(ctx, input)
 }
 
 func (s *AISolveService) finishRun(

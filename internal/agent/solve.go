@@ -64,6 +64,14 @@ func DisplaySolveAgentName(name string) string {
 	return trimmed
 }
 
+func ListSolveAgents() []string {
+	return []string{
+		DirectCodegenAgentName,
+		DirectCodegenRepairAgentName,
+		AnalyzeThenCodegenAgentName,
+	}
+}
+
 func ResolveSolveStrategy(name string) (SolveStrategy, error) {
 	resolvedName, err := ResolveSolveAgentName(name)
 	if err != nil {

@@ -162,6 +162,133 @@ func TestNewClientOpenAICompatibleRejectsInvalidBaseURL(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleClientRoutesGLMModelsByRequestModel(t *testing.T) {
+	var defaultCalls int32
+	glmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer glm-key" {
+			t.Fatalf("unexpected glm auth header: %s", got)
+		}
+
+		var req openAICompatibleRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode glm request: %v", err)
+		}
+		if req.Model != "glm-4.5" {
+			t.Fatalf("unexpected glm request model: %s", req.Model)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model": "glm-4.5",
+			"choices": []map[string]any{
+				{
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": "```cpp\nint main(){return 0;}\n```",
+					},
+				},
+			},
+		})
+	}))
+	defer glmServer.Close()
+
+	defaultServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&defaultCalls, 1)
+		t.Fatal("default endpoint should not be used for glm request model")
+	}))
+	defer defaultServer.Close()
+
+	client, err := NewClient(config.LLMConfig{
+		Provider:       ProviderOpenAICompatible,
+		BaseURL:        defaultServer.URL,
+		APIKey:         "default-key",
+		Model:          "gpt-test",
+		Timeout:        5 * time.Second,
+		GLMBaseURL:     glmServer.URL,
+		GLMAPIKey:      "glm-key",
+		GLMModelPrefix: "glm-",
+	}, nil)
+	if err != nil {
+		t.Fatalf("new openai compatible client returned error: %v", err)
+	}
+
+	resp, err := client.Generate(context.Background(), GenerateRequest{
+		Prompt: "solve echo",
+		Model:  "glm-4.5",
+	})
+	if err != nil {
+		t.Fatalf("glm-routed generate returned error: %v", err)
+	}
+	if resp.Model != "glm-4.5" {
+		t.Fatalf("expected glm model, got %q", resp.Model)
+	}
+	if atomic.LoadInt32(&defaultCalls) != 0 {
+		t.Fatalf("expected default endpoint to remain unused, got %d calls", defaultCalls)
+	}
+}
+
+func TestOpenAICompatibleClientRoutesGLMModelsByDefaultModel(t *testing.T) {
+	var defaultCalls int32
+	glmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer glm-key" {
+			t.Fatalf("unexpected glm auth header: %s", got)
+		}
+
+		var req openAICompatibleRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode glm request: %v", err)
+		}
+		if req.Model != "glm-4.5" {
+			t.Fatalf("unexpected glm request model: %s", req.Model)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model": "glm-4.5",
+			"choices": []map[string]any{
+				{
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": "```cpp\nint main(){return 0;}\n```",
+					},
+				},
+			},
+		})
+	}))
+	defer glmServer.Close()
+
+	defaultServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&defaultCalls, 1)
+		t.Fatal("default endpoint should not be used for glm default model")
+	}))
+	defer defaultServer.Close()
+
+	client, err := NewClient(config.LLMConfig{
+		Provider:       ProviderOpenAICompatible,
+		BaseURL:        defaultServer.URL,
+		APIKey:         "default-key",
+		Model:          "glm-4.5",
+		Timeout:        5 * time.Second,
+		GLMBaseURL:     glmServer.URL,
+		GLMAPIKey:      "glm-key",
+		GLMModelPrefix: "glm-",
+	}, nil)
+	if err != nil {
+		t.Fatalf("new openai compatible client returned error: %v", err)
+	}
+
+	resp, err := client.Generate(context.Background(), GenerateRequest{
+		Prompt: "solve echo",
+	})
+	if err != nil {
+		t.Fatalf("glm default-model generate returned error: %v", err)
+	}
+	if resp.Model != "glm-4.5" {
+		t.Fatalf("expected glm model, got %q", resp.Model)
+	}
+	if atomic.LoadInt32(&defaultCalls) != 0 {
+		t.Fatalf("expected default endpoint to remain unused, got %d calls", defaultCalls)
+	}
+}
+
 func TestOpenAICompatibleClientRetriesUnexpectedEOF(t *testing.T) {
 	var attempts int32
 	var requestBodies []string
