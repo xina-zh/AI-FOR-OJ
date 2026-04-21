@@ -58,112 +58,25 @@ Expected:
 
 ---
 
-### Task 1: Add DeepSeek Config Fields
+### Completed Task 1 Summary: Add DeepSeek Config Fields
 
-**Files:**
+**Implemented:**
 
-- Modify: `internal/config/config.go`
-- Modify: `configs/config.example.yaml`
-- Test: `internal/config/config_test.go`
+- Added DeepSeek route config fields to `internal/config/config.go`:
+  - `DeepSeekBaseURL`
+  - `DeepSeekAPIKey`
+  - `DeepSeekModelPrefix`
+- Added env overrides:
+  - `LLM_DEEPSEEK_BASE_URL`
+  - `LLM_DEEPSEEK_API_KEY`
+  - `LLM_DEEPSEEK_MODEL_PREFIX`
+- Added commented DeepSeek example config in `configs/config.example.yaml`.
+- Added `TestLoadAppliesDeepSeekEnvOverrides` in `internal/config/config_test.go`.
 
-**Step 1: Write the failing config test**
+**Verification:**
 
-Add this test to `internal/config/config_test.go`:
-
-```go
-func TestLoadAppliesDeepSeekEnvOverrides(t *testing.T) {
-	t.Setenv("LLM_DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-	t.Setenv("LLM_DEEPSEEK_API_KEY", "deepseek-test-key")
-	t.Setenv("LLM_DEEPSEEK_MODEL_PREFIX", "deepseek-")
-
-	cfg, err := Load("")
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-
-	if cfg.LLM.DeepSeekBaseURL != "https://api.deepseek.com" {
-		t.Fatalf("unexpected deepseek base url: %q", cfg.LLM.DeepSeekBaseURL)
-	}
-	if cfg.LLM.DeepSeekAPIKey != "deepseek-test-key" {
-		t.Fatalf("unexpected deepseek api key: %q", cfg.LLM.DeepSeekAPIKey)
-	}
-	if cfg.LLM.DeepSeekModelPrefix != "deepseek-" {
-		t.Fatalf("unexpected deepseek model prefix: %q", cfg.LLM.DeepSeekModelPrefix)
-	}
-}
-```
-
-**Step 2: Run the failing test**
-
-Run:
-
-```bash
-go test ./internal/config -run TestLoadAppliesDeepSeekEnvOverrides -count=1
-```
-
-Expected:
-
-- FAIL because `DeepSeekBaseURL`, `DeepSeekAPIKey`, and `DeepSeekModelPrefix` do not exist.
-
-**Step 3: Implement config fields**
-
-Modify `LLMConfig` in `internal/config/config.go`:
-
-```go
-type LLMConfig struct {
-	Provider            string        `yaml:"provider"`
-	BaseURL             string        `yaml:"base_url"`
-	APIKey              string        `yaml:"api_key"`
-	Model               string        `yaml:"model"`
-	Timeout             time.Duration `yaml:"timeout"`
-	MockResponse        string        `yaml:"mock_response"`
-	GLMBaseURL          string        `yaml:"glm_base_url"`
-	GLMAPIKey           string        `yaml:"glm_api_key"`
-	GLMModelPrefix      string        `yaml:"glm_model_prefix"`
-	DeepSeekBaseURL     string        `yaml:"deepseek_base_url"`
-	DeepSeekAPIKey      string        `yaml:"deepseek_api_key"`
-	DeepSeekModelPrefix string        `yaml:"deepseek_model_prefix"`
-}
-```
-
-Add env overrides in `applyEnvOverrides`:
-
-```go
-cfg.LLM.DeepSeekBaseURL = getEnvString("LLM_DEEPSEEK_BASE_URL", cfg.LLM.DeepSeekBaseURL)
-cfg.LLM.DeepSeekAPIKey = getEnvString("LLM_DEEPSEEK_API_KEY", cfg.LLM.DeepSeekAPIKey)
-cfg.LLM.DeepSeekModelPrefix = getEnvString("LLM_DEEPSEEK_MODEL_PREFIX", cfg.LLM.DeepSeekModelPrefix)
-```
-
-Do not set DeepSeek defaults in `defaultConfig`; an empty route means disabled.
-
-**Step 4: Document example config**
-
-Add commented fields under `llm:` in `configs/config.example.yaml`:
-
-```yaml
-  # Optional: route deepseek-* models to DeepSeek while keeping request-level model selection.
-  # DeepSeek API is OpenAI-compatible. Official base URL: https://api.deepseek.com
-  # deepseek_base_url: https://api.deepseek.com
-  # deepseek_api_key: your-deepseek-api-key
-  # deepseek_model_prefix: deepseek-
-```
-
-**Step 5: Verify and commit**
-
-Run:
-
-```bash
-go test ./internal/config -count=1
-```
-
-Expected: PASS.
-
-Commit:
-
-```bash
-git add internal/config/config.go internal/config/config_test.go configs/config.example.yaml
-git commit -m "feat: add deepseek llm config"
-```
+- RED: `go test ./internal/config -run TestLoadAppliesDeepSeekEnvOverrides -count=1` failed because DeepSeek fields did not exist.
+- GREEN: `go test ./internal/config -count=1` passed.
 
 ---
 
