@@ -13,6 +13,7 @@ import (
 	"ai-for-oj/internal/model"
 	"ai-for-oj/internal/prompt"
 	"ai-for-oj/internal/repository"
+	"ai-for-oj/internal/tooling"
 )
 
 type fakeAISolveRunRepository struct {
@@ -85,6 +86,20 @@ func (r *fakeAISolveAttemptRepository) ListByRunID(_ context.Context, runID uint
 		}
 	}
 	return items, nil
+}
+
+type countingServiceTool struct {
+	name  string
+	calls int
+}
+
+func (t *countingServiceTool) Name() string {
+	return t.name
+}
+
+func (t *countingServiceTool) Run(context.Context, tooling.CallInput) (tooling.CallOutput, error) {
+	t.calls++
+	return tooling.CallOutput{ToolName: t.name, Status: tooling.CallStatusOK, Summary: "ok"}, nil
 }
 
 type fakeLLMClient struct {
@@ -392,6 +407,44 @@ func TestAISolveServiceSolveCanonicalizesToolingConfig(t *testing.T) {
 	}
 	if len(runRepo.updated) != 1 || runRepo.updated[0].ToolingConfig != output.ToolingConfig {
 		t.Fatalf("expected tooling config persisted, got %+v", runRepo.updated)
+	}
+}
+
+func TestAISolveServiceSolveToolingCodegenReportsToolCalls(t *testing.T) {
+	llmClient := &fakeLLMClient{
+		response: llm.GenerateResponse{
+			Model:   "mock-cpp17",
+			Content: "```cpp\nint main(){return 0;}\n```",
+		},
+	}
+	judgeSubmitter := &fakeJudgeSubmitter{
+		output: &JudgeSubmissionOutput{SubmissionID: 10, ProblemID: 1, SourceType: model.SourceTypeAI, Verdict: "AC"},
+	}
+	runRepo := &fakeAISolveRunRepository{}
+	registry := tooling.NewRegistry()
+	registry.Register(&countingServiceTool{name: tooling.SampleJudgeToolName})
+	service := NewAISolveService(
+		fakeProblemRepository{problem: adaptiveServiceTestProblem()},
+		runRepo,
+		llmClient,
+		judgeSubmitter,
+		"default-model",
+	)
+	service.SetToolingRegistry(registry)
+
+	output, err := service.Solve(context.Background(), AISolveInput{
+		ProblemID:     1,
+		AgentName:     agent.ToolingCodegenV1AgentName,
+		ToolingConfig: `{"enabled":["sample_judge"],"max_calls":1}`,
+	})
+	if err != nil {
+		t.Fatalf("solve returned error: %v", err)
+	}
+	if output.ToolCallCount != 1 {
+		t.Fatalf("expected one tool call, got %+v", output)
+	}
+	if len(runRepo.updated) != 1 || runRepo.updated[0].ToolCallCount != 1 {
+		t.Fatalf("expected tool call count persisted, got %+v", runRepo.updated)
 	}
 }
 

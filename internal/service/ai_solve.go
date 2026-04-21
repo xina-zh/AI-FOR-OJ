@@ -75,12 +75,13 @@ type AISolveAttemptOutput struct {
 }
 
 type AISolveService struct {
-	problems     repository.ProblemRepository
-	runs         repository.AISolveRunRepository
-	attempts     repository.AISolveAttemptRepository
-	llmClient    llm.Client
-	submissions  JudgeSubmitter
-	defaultModel string
+	problems        repository.ProblemRepository
+	runs            repository.AISolveRunRepository
+	attempts        repository.AISolveAttemptRepository
+	llmClient       llm.Client
+	submissions     JudgeSubmitter
+	defaultModel    string
+	toolingRegistry *tooling.Registry
 }
 
 func NewAISolveService(
@@ -105,6 +106,10 @@ func NewAISolveService(
 	}
 }
 
+func (s *AISolveService) SetToolingRegistry(registry *tooling.Registry) {
+	s.toolingRegistry = registry
+}
+
 func (s *AISolveService) Solve(ctx context.Context, input AISolveInput) (*AISolveOutput, error) {
 	solveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultAISolveExecutionTimeout)
 	defer cancel()
@@ -120,6 +125,10 @@ func (s *AISolveService) Solve(ctx context.Context, input AISolveInput) (*AISolv
 		return nil, err
 	}
 	_, canonicalToolingConfig, err := tooling.ResolveConfig(input.ToolingConfig)
+	if err != nil {
+		return nil, err
+	}
+	toolingConfig, _, err := tooling.ResolveConfig(canonicalToolingConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -159,9 +168,10 @@ func (s *AISolveService) Solve(ctx context.Context, input AISolveInput) (*AISolv
 	}
 
 	agentOutput, err := strategy.Execute(solveCtx, s.llmClient, agent.SolveInput{
-		Problem:    problem,
-		Model:      resolvedModel,
-		PromptName: resolvedPromptName,
+		Problem:       problem,
+		Model:         resolvedModel,
+		PromptName:    resolvedPromptName,
+		ToolingRunner: s.newToolingRunner(toolingConfig),
 	})
 	s.applyAttemptLLMOutput(run, output, resolvedModel, resolvedAgentName, agentOutput)
 	if err != nil {
@@ -329,6 +339,15 @@ func (s *AISolveService) applyAttemptLLMOutput(
 	output.TokenInput = run.TokenInput
 	output.TokenOutput = run.TokenOutput
 	output.LLMLatencyMS = run.LLMLatencyMS
+	run.ToolCallCount += attempt.ToolCallCount
+	output.ToolCallCount = run.ToolCallCount
+}
+
+func (s *AISolveService) newToolingRunner(cfg tooling.Config) *tooling.Runner {
+	if s.toolingRegistry == nil {
+		return nil
+	}
+	return s.toolingRegistry.NewRunner(cfg)
 }
 
 func (s *AISolveService) applyAdaptiveCoordinatorOutput(

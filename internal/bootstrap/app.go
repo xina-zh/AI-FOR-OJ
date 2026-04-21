@@ -16,6 +16,7 @@ import (
 	"ai-for-oj/internal/runtime"
 	"ai-for-oj/internal/sandbox"
 	"ai-for-oj/internal/service"
+	"ai-for-oj/internal/tooling"
 )
 
 type Container struct {
@@ -69,7 +70,10 @@ func Build(configPath string) (*Container, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init llm client: %w", err)
 	}
+	toolingRegistry := tooling.NewRegistry()
+	toolingRegistry.Register(tooling.NewSampleJudgeTool(judgeEngine))
 	aiSolveService := service.NewAISolveService(problemRepository, aiSolveRunRepository, llmClient, judgeSubmissionService, cfg.LLM.Model, aiSolveAttemptRepository)
+	aiSolveService.SetToolingRegistry(toolingRegistry)
 	aiHandler := handler.NewAIHandler(aiSolveService)
 	metaHandler := handler.NewMetaHandler(cfg.LLM.Model)
 	experimentService := service.NewExperimentService(experimentRepository, aiSolveService, cfg.LLM.Model)

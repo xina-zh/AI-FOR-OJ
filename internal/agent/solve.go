@@ -9,6 +9,7 @@ import (
 	"ai-for-oj/internal/llm"
 	"ai-for-oj/internal/model"
 	"ai-for-oj/internal/prompt"
+	"ai-for-oj/internal/tooling"
 )
 
 const (
@@ -16,14 +17,16 @@ const (
 	DirectCodegenRepairAgentName = "direct_codegen_repair"
 	AnalyzeThenCodegenAgentName  = "analyze_then_codegen"
 	AdaptiveRepairV1AgentName    = "adaptive_repair_v1"
+	ToolingCodegenV1AgentName    = "tooling_codegen_v1"
 )
 
 var ErrUnknownSolveAgent = errors.New("unknown solve agent")
 
 type SolveInput struct {
-	Problem    *model.Problem
-	Model      string
-	PromptName string
+	Problem       *model.Problem
+	Model         string
+	PromptName    string
+	ToolingRunner *tooling.Runner
 }
 
 type SolveOutput struct {
@@ -35,6 +38,7 @@ type SolveOutput struct {
 	TokenOutput     int64
 	LLMLatencyMS    int
 	AnalysisPreview string
+	ToolCallCount   int
 }
 
 type SolveStrategy interface {
@@ -54,6 +58,8 @@ func ResolveSolveAgentName(name string) (string, error) {
 		return AnalyzeThenCodegenAgentName, nil
 	case AdaptiveRepairV1AgentName:
 		return AdaptiveRepairV1AgentName, nil
+	case ToolingCodegenV1AgentName:
+		return ToolingCodegenV1AgentName, nil
 	default:
 		return "", ErrUnknownSolveAgent
 	}
@@ -73,6 +79,7 @@ func ListSolveAgents() []string {
 		DirectCodegenRepairAgentName,
 		AnalyzeThenCodegenAgentName,
 		AdaptiveRepairV1AgentName,
+		ToolingCodegenV1AgentName,
 	}
 }
 
@@ -89,6 +96,8 @@ func ResolveSolveStrategy(name string) (SolveStrategy, error) {
 		return analyzeThenCodegenStrategy{}, nil
 	case AdaptiveRepairV1AgentName:
 		return adaptiveRepairV1Strategy{}, nil
+	case ToolingCodegenV1AgentName:
+		return toolingCodegenV1Strategy{}, nil
 	default:
 		return directCodegenStrategy{}, nil
 	}
@@ -132,6 +141,8 @@ type analyzeThenCodegenStrategy struct{}
 type directCodegenRepairStrategy struct{}
 
 type adaptiveRepairV1Strategy struct{}
+
+type toolingCodegenV1Strategy struct{}
 
 func (directCodegenRepairStrategy) Name() string {
 	return DirectCodegenRepairAgentName
@@ -185,6 +196,37 @@ func (adaptiveRepairV1Strategy) Execute(ctx context.Context, client llm.Client, 
 		TokenOutput:   resp.OutputTokens,
 		LLMLatencyMS:  latencyMS,
 	}, nil
+}
+
+func (toolingCodegenV1Strategy) Name() string {
+	return ToolingCodegenV1AgentName
+}
+
+func (toolingCodegenV1Strategy) Execute(ctx context.Context, client llm.Client, input SolveInput) (SolveOutput, error) {
+	finalPrompt := prompt.BuildSolvePrompt(input.Problem, input.PromptName)
+	resp, latencyMS, err := generateOnce(ctx, client, input.Model, finalPrompt)
+	output := SolveOutput{
+		AgentName:     ToolingCodegenV1AgentName,
+		Model:         effectiveModel(resp.Model, input.Model),
+		PromptPreview: finalPrompt,
+		RawResponse:   resp.Content,
+		TokenInput:    resp.InputTokens,
+		TokenOutput:   resp.OutputTokens,
+		LLMLatencyMS:  latencyMS,
+	}
+	if err != nil {
+		return output, err
+	}
+
+	code := ExtractCPPCode(resp.Content)
+	if input.ToolingRunner != nil && strings.TrimSpace(code) != "" {
+		_, _ = input.ToolingRunner.Call(ctx, tooling.SampleJudgeToolName, tooling.CallInput{
+			Problem:    input.Problem,
+			SourceCode: code,
+		})
+		output.ToolCallCount = input.ToolingRunner.CallCount()
+	}
+	return output, nil
 }
 
 func (analyzeThenCodegenStrategy) Name() string {
