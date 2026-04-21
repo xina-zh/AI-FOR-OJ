@@ -13,6 +13,7 @@ import (
 	"ai-for-oj/internal/model"
 	"ai-for-oj/internal/prompt"
 	"ai-for-oj/internal/repository"
+	"ai-for-oj/internal/tooling"
 )
 
 var (
@@ -28,10 +29,11 @@ type JudgeSubmitter interface {
 }
 
 type AISolveInput struct {
-	ProblemID  uint
-	Model      string
-	PromptName string
-	AgentName  string
+	ProblemID     uint
+	Model         string
+	PromptName    string
+	AgentName     string
+	ToolingConfig string
 }
 
 type AISolveOutput struct {
@@ -49,6 +51,8 @@ type AISolveOutput struct {
 	AttemptCount   int                    `json:"attempt_count"`
 	FailureType    string                 `json:"failure_type,omitempty"`
 	StrategyPath   string                 `json:"strategy_path,omitempty"`
+	ToolingConfig  string                 `json:"tooling_config"`
+	ToolCallCount  int                    `json:"tool_call_count"`
 	TokenInput     int64                  `json:"token_input"`
 	TokenOutput    int64                  `json:"token_output"`
 	LLMLatencyMS   int                    `json:"llm_latency_ms"`
@@ -115,23 +119,29 @@ func (s *AISolveService) Solve(ctx context.Context, input AISolveInput) (*AISolv
 	if err != nil {
 		return nil, err
 	}
+	_, canonicalToolingConfig, err := tooling.ResolveConfig(input.ToolingConfig)
+	if err != nil {
+		return nil, err
+	}
 	run := &model.AISolveRun{
-		ProblemID:  input.ProblemID,
-		Model:      resolvedModel,
-		PromptName: resolvedPromptName,
-		AgentName:  resolvedAgentName,
-		Status:     model.AISolveRunStatusRunning,
+		ProblemID:     input.ProblemID,
+		Model:         resolvedModel,
+		PromptName:    resolvedPromptName,
+		AgentName:     resolvedAgentName,
+		ToolingConfig: canonicalToolingConfig,
+		Status:        model.AISolveRunStatusRunning,
 	}
 	if err := s.runs.Create(solveCtx, run); err != nil {
 		return nil, fmt.Errorf("create ai solve run: %w", err)
 	}
 
 	output := &AISolveOutput{
-		AISolveRunID: run.ID,
-		ProblemID:    input.ProblemID,
-		Model:        resolvedModel,
-		PromptName:   resolvedPromptName,
-		AgentName:    resolvedAgentName,
+		AISolveRunID:  run.ID,
+		ProblemID:     input.ProblemID,
+		Model:         resolvedModel,
+		PromptName:    resolvedPromptName,
+		AgentName:     resolvedAgentName,
+		ToolingConfig: canonicalToolingConfig,
 	}
 
 	problem, err := s.problems.GetByID(solveCtx, input.ProblemID)
@@ -359,6 +369,8 @@ func (s *AISolveService) applyAdaptiveCoordinatorOutput(
 	output.AttemptCount = coordinatorOutput.AttemptCount
 	output.FailureType = coordinatorOutput.FailureType
 	output.StrategyPath = coordinatorOutput.StrategyPath
+	output.ToolingConfig = run.ToolingConfig
+	output.ToolCallCount = run.ToolCallCount
 	output.Attempts = coordinatorAttemptsToOutput(coordinatorOutput.Attempts)
 }
 
@@ -636,6 +648,8 @@ func syncAISolveOutputFromRun(output *AISolveOutput, run *model.AISolveRun) {
 	output.AttemptCount = run.AttemptCount
 	output.FailureType = run.FailureType
 	output.StrategyPath = run.StrategyPath
+	output.ToolingConfig = run.ToolingConfig
+	output.ToolCallCount = run.ToolCallCount
 	output.Attempts = modelAttemptsToOutput(run.Attempts)
 	output.TokenInput = run.TokenInput
 	output.TokenOutput = run.TokenOutput

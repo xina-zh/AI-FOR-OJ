@@ -519,6 +519,38 @@ func TestExperimentCompareServiceList(t *testing.T) {
 	}
 }
 
+func TestExperimentCompareServiceCompareDetectsToolingDimension(t *testing.T) {
+	repo := &fakeExperimentCompareRepository{}
+	runner := &fakeExperimentRunner{
+		runOutputs: []*ExperimentOutput{
+			{ID: 10, Name: "baseline", Model: "mock", PromptName: prompt.DefaultSolvePromptName, AgentName: agent.DirectCodegenAgentName, Status: ExperimentStatusCompleted},
+			{ID: 20, Name: "candidate", Model: "mock", PromptName: prompt.DefaultSolvePromptName, AgentName: agent.DirectCodegenAgentName, Status: ExperimentStatusCompleted},
+		},
+	}
+	service := NewExperimentCompareService(repo, runner, "mock")
+
+	output, err := service.Compare(context.Background(), CompareExperimentInput{
+		Name:                   "tooling-compare",
+		ProblemIDs:             []uint{1},
+		BaselineModel:          "mock",
+		CandidateModel:         "mock",
+		BaselineToolingConfig:  "",
+		CandidateToolingConfig: `{"enabled":["sample_judge"],"max_calls":1}`,
+	})
+	if err != nil {
+		t.Fatalf("compare returned error: %v", err)
+	}
+
+	if output.CompareDimension != ExperimentCompareDimensionTooling {
+		t.Fatalf("expected tooling compare dimension, got %+v", output)
+	}
+	if len(runner.runInputs) != 2 ||
+		runner.runInputs[0].ToolingConfig != output.BaselineToolingConfig ||
+		runner.runInputs[1].ToolingConfig != output.CandidateToolingConfig {
+		t.Fatalf("expected tooling configs passed to experiments, got inputs=%+v output=%+v", runner.runInputs, output)
+	}
+}
+
 func TestExperimentCompareServiceGet(t *testing.T) {
 	repo := &fakeExperimentCompareRepository{
 		getByID: &model.ExperimentCompare{

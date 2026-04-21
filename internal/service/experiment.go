@@ -9,6 +9,7 @@ import (
 	"ai-for-oj/internal/model"
 	"ai-for-oj/internal/prompt"
 	"ai-for-oj/internal/repository"
+	"ai-for-oj/internal/tooling"
 )
 
 const (
@@ -28,22 +29,25 @@ type RunExperimentInput struct {
 	Model               string
 	PromptName          string
 	AgentName           string
+	ToolingConfig       string
 	OnExperimentCreated func(experimentID uint) error
 }
 
 type ExperimentRunOutput struct {
-	ID           uint      `json:"id"`
-	ProblemID    uint      `json:"problem_id"`
-	AISolveRunID *uint     `json:"ai_solve_run_id,omitempty"`
-	SubmissionID *uint     `json:"submission_id,omitempty"`
-	AttemptNo    int       `json:"attempt_no"`
-	Verdict      string    `json:"verdict,omitempty"`
-	Status       string    `json:"status"`
-	ErrorMessage string    `json:"error_message,omitempty"`
-	AttemptCount int       `json:"attempt_count"`
-	FailureType  string    `json:"failure_type,omitempty"`
-	StrategyPath string    `json:"strategy_path,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID            uint      `json:"id"`
+	ProblemID     uint      `json:"problem_id"`
+	AISolveRunID  *uint     `json:"ai_solve_run_id,omitempty"`
+	SubmissionID  *uint     `json:"submission_id,omitempty"`
+	AttemptNo     int       `json:"attempt_no"`
+	Verdict       string    `json:"verdict,omitempty"`
+	Status        string    `json:"status"`
+	ErrorMessage  string    `json:"error_message,omitempty"`
+	AttemptCount  int       `json:"attempt_count"`
+	FailureType   string    `json:"failure_type,omitempty"`
+	StrategyPath  string    `json:"strategy_path,omitempty"`
+	ToolingConfig string    `json:"tooling_config"`
+	ToolCallCount int       `json:"tool_call_count"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type ExperimentCostSummary struct {
@@ -66,6 +70,7 @@ type ExperimentOutput struct {
 	Model               string                `json:"model"`
 	PromptName          string                `json:"prompt_name"`
 	AgentName           string                `json:"agent_name"`
+	ToolingConfig       string                `json:"tooling_config"`
 	Status              string                `json:"status"`
 	TotalCount          int                   `json:"total_count"`
 	SuccessCount        int                   `json:"success_count"`
@@ -105,14 +110,19 @@ func (s *ExperimentService) Run(ctx context.Context, input RunExperimentInput) (
 	if err != nil {
 		return nil, err
 	}
+	_, canonicalToolingConfig, err := tooling.ResolveConfig(input.ToolingConfig)
+	if err != nil {
+		return nil, err
+	}
 
 	experiment := &model.Experiment{
-		Name:       defaultExperimentName(input.Name),
-		ModelName:  firstNonEmpty(input.Model, s.defaultModel),
-		PromptName: resolvedPromptName,
-		AgentName:  resolvedAgentName,
-		Status:     ExperimentStatusRunning,
-		TotalCount: len(input.ProblemIDs),
+		Name:          defaultExperimentName(input.Name),
+		ModelName:     firstNonEmpty(input.Model, s.defaultModel),
+		PromptName:    resolvedPromptName,
+		AgentName:     resolvedAgentName,
+		ToolingConfig: canonicalToolingConfig,
+		Status:        ExperimentStatusRunning,
+		TotalCount:    len(input.ProblemIDs),
 	}
 	if err := s.experiments.Create(ctx, experiment); err != nil {
 		return nil, fmt.Errorf("create experiment: %w", err)
@@ -125,10 +135,11 @@ func (s *ExperimentService) Run(ctx context.Context, input RunExperimentInput) (
 
 	for index, problemID := range input.ProblemIDs {
 		aiOutput, err := s.aiSolver.Solve(ctx, AISolveInput{
-			ProblemID:  problemID,
-			Model:      experiment.ModelName,
-			PromptName: experiment.PromptName,
-			AgentName:  experiment.AgentName,
+			ProblemID:     problemID,
+			Model:         experiment.ModelName,
+			PromptName:    experiment.PromptName,
+			AgentName:     experiment.AgentName,
+			ToolingConfig: experiment.ToolingConfig,
 		})
 
 		run := &model.ExperimentRun{
@@ -152,6 +163,8 @@ func (s *ExperimentService) Run(ctx context.Context, input RunExperimentInput) (
 					AttemptCount:   aiOutput.AttemptCount,
 					FailureType:    aiOutput.FailureType,
 					StrategyPath:   aiOutput.StrategyPath,
+					ToolingConfig:  aiOutput.ToolingConfig,
+					ToolCallCount:  aiOutput.ToolCallCount,
 				}
 			}
 			if aiOutput.SubmissionID != 0 {
@@ -198,20 +211,21 @@ func (s *ExperimentService) Get(ctx context.Context, experimentID uint) (*Experi
 
 func toExperimentOutput(experiment *model.Experiment) *ExperimentOutput {
 	output := &ExperimentOutput{
-		ID:           experiment.ID,
-		Name:         experiment.Name,
-		Model:        experiment.ModelName,
-		PromptName:   prompt.DisplaySolvePromptName(experiment.PromptName),
-		AgentName:    agent.DisplaySolveAgentName(experiment.AgentName),
-		Status:       experiment.Status,
-		TotalCount:   experiment.TotalCount,
-		SuccessCount: experiment.SuccessCount,
-		ACCount:      experiment.ACCount,
-		FailedCount:  experiment.FailedCount,
-		CostSummary:  buildExperimentCostSummary(experiment.Runs),
-		CreatedAt:    experiment.CreatedAt,
-		UpdatedAt:    experiment.UpdatedAt,
-		Runs:         make([]ExperimentRunOutput, 0, len(experiment.Runs)),
+		ID:            experiment.ID,
+		Name:          experiment.Name,
+		Model:         experiment.ModelName,
+		PromptName:    prompt.DisplaySolvePromptName(experiment.PromptName),
+		AgentName:     agent.DisplaySolveAgentName(experiment.AgentName),
+		ToolingConfig: experiment.ToolingConfig,
+		Status:        experiment.Status,
+		TotalCount:    experiment.TotalCount,
+		SuccessCount:  experiment.SuccessCount,
+		ACCount:       experiment.ACCount,
+		FailedCount:   experiment.FailedCount,
+		CostSummary:   buildExperimentCostSummary(experiment.Runs),
+		CreatedAt:     experiment.CreatedAt,
+		UpdatedAt:     experiment.UpdatedAt,
+		Runs:          make([]ExperimentRunOutput, 0, len(experiment.Runs)),
 	}
 	for _, run := range experiment.Runs {
 		if run.FinalVerdict != "" {
@@ -234,6 +248,8 @@ func toExperimentOutput(experiment *model.Experiment) *ExperimentOutput {
 			item.AttemptCount = run.AISolveRun.AttemptCount
 			item.FailureType = run.AISolveRun.FailureType
 			item.StrategyPath = run.AISolveRun.StrategyPath
+			item.ToolingConfig = run.AISolveRun.ToolingConfig
+			item.ToolCallCount = run.AISolveRun.ToolCallCount
 		}
 		output.Runs = append(output.Runs, item)
 	}

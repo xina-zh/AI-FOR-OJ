@@ -30,10 +30,11 @@ func (h *AIHandler) Solve(c *gin.Context) {
 	}
 
 	output, err := h.service.Solve(c.Request.Context(), service.AISolveInput{
-		ProblemID:  req.ProblemID,
-		Model:      req.Model,
-		PromptName: req.PromptName,
-		AgentName:  req.AgentName,
+		ProblemID:     req.ProblemID,
+		Model:         req.Model,
+		PromptName:    req.PromptName,
+		AgentName:     req.AgentName,
+		ToolingConfig: req.ToolingConfig,
 	})
 	if err != nil {
 		errorResp := dto.AISolveErrorResponse{Error: err.Error()}
@@ -50,6 +51,8 @@ func (h *AIHandler) Solve(c *gin.Context) {
 			errorResp.AttemptCount = output.AttemptCount
 			errorResp.FailureType = output.FailureType
 			errorResp.StrategyPath = output.StrategyPath
+			errorResp.ToolingConfig = output.ToolingConfig
+			errorResp.ToolCallCount = output.ToolCallCount
 		}
 		switch {
 		case errors.Is(err, agent.ErrUnknownSolveAgent):
@@ -84,6 +87,8 @@ func (h *AIHandler) Solve(c *gin.Context) {
 		AttemptCount:   output.AttemptCount,
 		FailureType:    output.FailureType,
 		StrategyPath:   output.StrategyPath,
+		ToolingConfig:  output.ToolingConfig,
+		ToolCallCount:  output.ToolCallCount,
 		TokenInput:     output.TokenInput,
 		TokenOutput:    output.TokenOutput,
 		LLMLatencyMS:   output.LLMLatencyMS,
@@ -125,6 +130,8 @@ func (h *AIHandler) GetRun(c *gin.Context) {
 		AttemptCount:   run.AttemptCount,
 		FailureType:    run.FailureType,
 		StrategyPath:   run.StrategyPath,
+		ToolingConfig:  run.ToolingConfig,
+		ToolCallCount:  run.ToolCallCount,
 		TokenInput:     run.TokenInput,
 		TokenOutput:    run.TokenOutput,
 		LLMLatencyMS:   run.LLMLatencyMS,

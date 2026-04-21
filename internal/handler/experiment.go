@@ -39,11 +39,12 @@ func (h *ExperimentHandler) Run(c *gin.Context) {
 	}
 
 	output, err := h.service.Run(c.Request.Context(), service.RunExperimentInput{
-		Name:       req.Name,
-		ProblemIDs: req.ProblemIDs,
-		Model:      req.Model,
-		PromptName: req.PromptName,
-		AgentName:  req.AgentName,
+		Name:          req.Name,
+		ProblemIDs:    req.ProblemIDs,
+		Model:         req.Model,
+		PromptName:    req.PromptName,
+		AgentName:     req.AgentName,
+		ToolingConfig: req.ToolingConfig,
 	})
 	if err != nil {
 		if errors.Is(err, agent.ErrUnknownSolveAgent) {
@@ -69,14 +70,16 @@ func (h *ExperimentHandler) Compare(c *gin.Context) {
 	}
 
 	output, err := h.compareService.Compare(c.Request.Context(), service.CompareExperimentInput{
-		Name:                req.Name,
-		ProblemIDs:          req.ProblemIDs,
-		BaselineModel:       req.BaselineModel,
-		CandidateModel:      req.CandidateModel,
-		BaselinePromptName:  req.BaselinePromptName,
-		CandidatePromptName: req.CandidatePromptName,
-		BaselineAgentName:   req.BaselineAgentName,
-		CandidateAgentName:  req.CandidateAgentName,
+		Name:                   req.Name,
+		ProblemIDs:             req.ProblemIDs,
+		BaselineModel:          req.BaselineModel,
+		CandidateModel:         req.CandidateModel,
+		BaselinePromptName:     req.BaselinePromptName,
+		CandidatePromptName:    req.CandidatePromptName,
+		BaselineAgentName:      req.BaselineAgentName,
+		CandidateAgentName:     req.CandidateAgentName,
+		BaselineToolingConfig:  req.BaselineToolingConfig,
+		CandidateToolingConfig: req.CandidateToolingConfig,
 	})
 	if err != nil {
 		if errors.Is(err, agent.ErrUnknownSolveAgent) {
@@ -136,12 +139,13 @@ func (h *ExperimentHandler) Repeat(c *gin.Context) {
 	}
 
 	output, err := h.repeatService.Repeat(c.Request.Context(), service.RepeatExperimentInput{
-		Name:        req.Name,
-		ProblemIDs:  req.ProblemIDs,
-		Model:       req.Model,
-		PromptName:  req.PromptName,
-		AgentName:   req.AgentName,
-		RepeatCount: req.RepeatCount,
+		Name:          req.Name,
+		ProblemIDs:    req.ProblemIDs,
+		Model:         req.Model,
+		PromptName:    req.PromptName,
+		AgentName:     req.AgentName,
+		ToolingConfig: req.ToolingConfig,
+		RepeatCount:   req.RepeatCount,
 	})
 	if err != nil {
 		if errors.Is(err, agent.ErrUnknownSolveAgent) {
@@ -223,18 +227,20 @@ func toExperimentResponse(output *service.ExperimentOutput) dto.ExperimentRespon
 	runs := make([]dto.ExperimentRunResponse, 0, len(output.Runs))
 	for _, run := range output.Runs {
 		runs = append(runs, dto.ExperimentRunResponse{
-			ID:           run.ID,
-			ProblemID:    run.ProblemID,
-			AISolveRunID: run.AISolveRunID,
-			SubmissionID: run.SubmissionID,
-			AttemptNo:    run.AttemptNo,
-			Verdict:      run.Verdict,
-			Status:       run.Status,
-			ErrorMessage: run.ErrorMessage,
-			AttemptCount: run.AttemptCount,
-			FailureType:  run.FailureType,
-			StrategyPath: run.StrategyPath,
-			CreatedAt:    run.CreatedAt,
+			ID:            run.ID,
+			ProblemID:     run.ProblemID,
+			AISolveRunID:  run.AISolveRunID,
+			SubmissionID:  run.SubmissionID,
+			AttemptNo:     run.AttemptNo,
+			Verdict:       run.Verdict,
+			Status:        run.Status,
+			ErrorMessage:  run.ErrorMessage,
+			AttemptCount:  run.AttemptCount,
+			FailureType:   run.FailureType,
+			StrategyPath:  run.StrategyPath,
+			ToolingConfig: run.ToolingConfig,
+			ToolCallCount: run.ToolCallCount,
+			CreatedAt:     run.CreatedAt,
 		})
 	}
 
@@ -244,6 +250,7 @@ func toExperimentResponse(output *service.ExperimentOutput) dto.ExperimentRespon
 		Model:               output.Model,
 		PromptName:          output.PromptName,
 		AgentName:           output.AgentName,
+		ToolingConfig:       output.ToolingConfig,
 		Status:              output.Status,
 		TotalCount:          output.TotalCount,
 		SuccessCount:        output.SuccessCount,
@@ -299,36 +306,38 @@ func toExperimentCompareResponse(output *service.ExperimentCompareOutput) dto.Ex
 	}
 
 	return dto.ExperimentCompareResponse{
-		ID:                    output.ID,
-		Name:                  output.Name,
-		CompareDimension:      output.CompareDimension,
-		BaselineValue:         output.BaselineValue,
-		CandidateValue:        output.CandidateValue,
-		BaselinePromptName:    output.BaselinePromptName,
-		CandidatePromptName:   output.CandidatePromptName,
-		BaselineAgentName:     output.BaselineAgentName,
-		CandidateAgentName:    output.CandidateAgentName,
-		ProblemIDs:            output.ProblemIDs,
-		BaselineExperimentID:  output.BaselineExperimentID,
-		CandidateExperimentID: output.CandidateExperimentID,
-		BaselineSummary:       baseline,
-		CandidateSummary:      candidate,
-		BaselineDistribution:  output.BaselineDistribution,
-		CandidateDistribution: output.CandidateDistribution,
-		DeltaDistribution:     output.DeltaDistribution,
-		CostComparison:        output.CostComparison,
-		ComparisonSummary:     output.ComparisonSummary,
-		ImprovedCount:         output.ImprovedCount,
-		RegressedCount:        output.RegressedCount,
-		ChangedNonACCount:     output.ChangedNonACCount,
-		ProblemSummaries:      problems,
-		HighlightedProblems:   highlighted,
-		DeltaACCount:          output.DeltaACCount,
-		DeltaFailedCount:      output.DeltaFailedCount,
-		Status:                output.Status,
-		ErrorMessage:          output.ErrorMessage,
-		CreatedAt:             output.CreatedAt,
-		UpdatedAt:             output.UpdatedAt,
+		ID:                     output.ID,
+		Name:                   output.Name,
+		CompareDimension:       output.CompareDimension,
+		BaselineValue:          output.BaselineValue,
+		CandidateValue:         output.CandidateValue,
+		BaselinePromptName:     output.BaselinePromptName,
+		CandidatePromptName:    output.CandidatePromptName,
+		BaselineAgentName:      output.BaselineAgentName,
+		CandidateAgentName:     output.CandidateAgentName,
+		BaselineToolingConfig:  output.BaselineToolingConfig,
+		CandidateToolingConfig: output.CandidateToolingConfig,
+		ProblemIDs:             output.ProblemIDs,
+		BaselineExperimentID:   output.BaselineExperimentID,
+		CandidateExperimentID:  output.CandidateExperimentID,
+		BaselineSummary:        baseline,
+		CandidateSummary:       candidate,
+		BaselineDistribution:   output.BaselineDistribution,
+		CandidateDistribution:  output.CandidateDistribution,
+		DeltaDistribution:      output.DeltaDistribution,
+		CostComparison:         output.CostComparison,
+		ComparisonSummary:      output.ComparisonSummary,
+		ImprovedCount:          output.ImprovedCount,
+		RegressedCount:         output.RegressedCount,
+		ChangedNonACCount:      output.ChangedNonACCount,
+		ProblemSummaries:       problems,
+		HighlightedProblems:    highlighted,
+		DeltaACCount:           output.DeltaACCount,
+		DeltaFailedCount:       output.DeltaFailedCount,
+		Status:                 output.Status,
+		ErrorMessage:           output.ErrorMessage,
+		CreatedAt:              output.CreatedAt,
+		UpdatedAt:              output.UpdatedAt,
 	}
 }
 
@@ -379,6 +388,7 @@ func toExperimentRepeatResponse(output *service.ExperimentRepeatOutput) dto.Expe
 		Model:                      output.Model,
 		PromptName:                 output.PromptName,
 		AgentName:                  output.AgentName,
+		ToolingConfig:              output.ToolingConfig,
 		ProblemIDs:                 output.ProblemIDs,
 		RepeatCount:                output.RepeatCount,
 		ExperimentIDs:              output.ExperimentIDs,

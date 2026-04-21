@@ -357,6 +357,44 @@ func TestAISolveServiceSolve(t *testing.T) {
 	}
 }
 
+func TestAISolveServiceSolveCanonicalizesToolingConfig(t *testing.T) {
+	llmClient := &fakeLLMClient{
+		response: llm.GenerateResponse{
+			Model:   "mock-cpp17",
+			Content: "```cpp\nint main(){return 0;}\n```",
+		},
+	}
+	judgeSubmitter := &fakeJudgeSubmitter{
+		output: &JudgeSubmissionOutput{SubmissionID: 10, ProblemID: 1, SourceType: model.SourceTypeAI, Verdict: "AC"},
+	}
+	runRepo := &fakeAISolveRunRepository{}
+	service := NewAISolveService(
+		fakeProblemRepository{problem: adaptiveServiceTestProblem()},
+		runRepo,
+		llmClient,
+		judgeSubmitter,
+		"default-model",
+	)
+
+	output, err := service.Solve(context.Background(), AISolveInput{
+		ProblemID:     1,
+		ToolingConfig: `{"enabled":[" sample_judge ","sample_judge"],"max_calls":1}`,
+	})
+	if err != nil {
+		t.Fatalf("solve returned error: %v", err)
+	}
+
+	if output.ToolingConfig != `{"enabled":["sample_judge"],"max_calls":1,"per_tool_max_calls":{}}` {
+		t.Fatalf("unexpected canonical tooling config: %s", output.ToolingConfig)
+	}
+	if output.ToolCallCount != 0 {
+		t.Fatalf("expected no tool calls for non-tooling agent, got %d", output.ToolCallCount)
+	}
+	if len(runRepo.updated) != 1 || runRepo.updated[0].ToolingConfig != output.ToolingConfig {
+		t.Fatalf("expected tooling config persisted, got %+v", runRepo.updated)
+	}
+}
+
 func TestAISolveServiceSolvePrefersRequestModel(t *testing.T) {
 	llmClient := &fakeLLMClient{
 		response: llm.GenerateResponse{

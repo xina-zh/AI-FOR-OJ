@@ -3,10 +3,11 @@ package dto
 import "time"
 
 type AISolveRequest struct {
-	ProblemID  uint   `json:"problem_id" binding:"required"`
-	Model      string `json:"model"`
-	PromptName string `json:"prompt_name"`
-	AgentName  string `json:"agent_name"`
+	ProblemID     uint   `json:"problem_id" binding:"required"`
+	Model         string `json:"model"`
+	PromptName    string `json:"prompt_name"`
+	AgentName     string `json:"agent_name"`
+	ToolingConfig string `json:"tooling_config"`
 }
 
 type AISolveResponse struct {
@@ -24,6 +25,8 @@ type AISolveResponse struct {
 	AttemptCount   int                      `json:"attempt_count"`
 	FailureType    string                   `json:"failure_type,omitempty"`
 	StrategyPath   string                   `json:"strategy_path,omitempty"`
+	ToolingConfig  string                   `json:"tooling_config"`
+	ToolCallCount  int                      `json:"tool_call_count"`
 	TokenInput     int64                    `json:"token_input"`
 	TokenOutput    int64                    `json:"token_output"`
 	LLMLatencyMS   int                      `json:"llm_latency_ms"`
@@ -53,6 +56,8 @@ type AISolveErrorResponse struct {
 	AttemptCount   int    `json:"attempt_count"`
 	FailureType    string `json:"failure_type,omitempty"`
 	StrategyPath   string `json:"strategy_path,omitempty"`
+	ToolingConfig  string `json:"tooling_config"`
+	ToolCallCount  int    `json:"tool_call_count"`
 	TokenInput     int64  `json:"token_input"`
 	TokenOutput    int64  `json:"token_output"`
 	LLMLatencyMS   int    `json:"llm_latency_ms"`
@@ -75,6 +80,8 @@ type AISolveRunResponse struct {
 	AttemptCount   int                      `json:"attempt_count"`
 	FailureType    string                   `json:"failure_type,omitempty"`
 	StrategyPath   string                   `json:"strategy_path,omitempty"`
+	ToolingConfig  string                   `json:"tooling_config"`
+	ToolCallCount  int                      `json:"tool_call_count"`
 	TokenInput     int64                    `json:"token_input"`
 	TokenOutput    int64                    `json:"token_output"`
 	LLMLatencyMS   int                      `json:"llm_latency_ms"`
