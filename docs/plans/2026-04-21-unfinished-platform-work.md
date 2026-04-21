@@ -100,132 +100,24 @@ Expected:
 
 ---
 
-### Task 3: Add MLE Verdict and Judge-Level Signal
+### Completed Task 3 Summary: Add MLE Verdict and Judge-Level Signal
 
-**Files:**
+**Implemented:**
 
-- Modify: `internal/judge/verdict.go`
-- Modify: `internal/sandbox/types.go`
-- Modify: `internal/sandbox/mock.go`
-- Modify: `internal/judge/types.go`
-- Modify: `internal/judge/engine.go`
-- Test: `internal/judge/engine_test.go`
+- Added `VerdictMemoryLimitExceeded = "MLE"` in `internal/judge/verdict.go`.
+- Added `MemoryExceeded` to:
+  - `sandbox.RunResult`
+  - `judge.Result`
+  - `judge.TestCaseResult`
+- Added `MOCK_MLE` handling in `internal/sandbox/mock.go`.
+- Mapped sandbox memory exceeded results to `MLE` in `internal/judge/engine.go`.
+- Preserved verdict priority: TLE first, then MLE, then RE.
+- Added `TestJudgeMemoryLimitExceeded` in `internal/judge/engine_test.go`.
 
-**Step 1: Write failing judge test**
+**Verification:**
 
-Add `TestJudgeMemoryLimitExceeded` to `internal/judge/engine_test.go`:
-
-```go
-func TestJudgeMemoryLimitExceeded(t *testing.T) {
-	engine := NewEngine(sandbox.NewMockSandbox())
-
-	result, err := engine.Judge(context.Background(), Request{
-		Problem: &model.Problem{TimeLimitMS: 1000, MemoryLimitMB: 64},
-		TestCases: []model.TestCase{{Input: "1", ExpectedOutput: "1"}},
-		Language:   model.LanguageCPP17,
-		SourceCode: "MOCK_MLE",
-	})
-	if err != nil {
-		t.Fatalf("judge returned error: %v", err)
-	}
-	if result.Verdict != VerdictMemoryLimitExceeded || !result.MemoryExceeded {
-		t.Fatalf("expected MLE result, got %+v", result)
-	}
-	if result.MemoryKB < 64*1024 {
-		t.Fatalf("expected memory usage at least limit, got %d", result.MemoryKB)
-	}
-	if len(result.TestCaseResults) != 1 || result.TestCaseResults[0].Verdict != VerdictMemoryLimitExceeded || !result.TestCaseResults[0].MemoryExceeded {
-		t.Fatalf("expected testcase MLE, got %+v", result.TestCaseResults)
-	}
-}
-```
-
-**Step 2: Run failing test**
-
-Run:
-
-```bash
-go test ./internal/judge -run TestJudgeMemoryLimitExceeded -count=1
-```
-
-Expected: FAIL because `VerdictMemoryLimitExceeded`, `MemoryExceeded`, and `MOCK_MLE` do not exist.
-
-**Step 3: Add verdict and result fields**
-
-Add in `internal/judge/verdict.go`:
-
-```go
-VerdictMemoryLimitExceeded = "MLE"
-```
-
-Add to `sandbox.RunResult`:
-
-```go
-MemoryExceeded bool
-```
-
-Add to `judge.Result` and `judge.TestCaseResult`:
-
-```go
-MemoryExceeded bool
-```
-
-**Step 4: Teach mock sandbox to simulate MLE**
-
-In `internal/sandbox/mock.go`, add marker handling:
-
-```go
-const mockMemoryLimitExceededMarker = "MOCK_MLE"
-
-if strings.Contains(req.SourceCode, mockMemoryLimitExceededMarker) {
-	return RunResult{
-		ExitCode:        137,
-		RuntimeMS:       1,
-		MemoryKB:        req.MemoryLimitMB * 1024,
-		MemoryExceeded:  true,
-		RuntimeError:    true,
-		ErrorMessage:    "memory limit exceeded",
-	}, nil
-}
-```
-
-Use the actual mock file shape; the important behavior is `MemoryExceeded: true`.
-
-**Step 5: Map memory exceeded before runtime error**
-
-In `internal/judge/engine.go`, after TLE handling and before generic RE handling:
-
-```go
-if runResult.MemoryExceeded {
-	result.Verdict = VerdictMemoryLimitExceeded
-	result.MemoryExceeded = true
-	result.MemoryKB = maxInt(runResult.MemoryKB, req.Problem.MemoryLimitMB*1024)
-	result.ErrorMessage = pickErrorMessage("memory limit exceeded", runResult.ErrorMessage, runResult.Stderr)
-	testCaseResult.Verdict = VerdictMemoryLimitExceeded
-	testCaseResult.MemoryExceeded = true
-	testCaseResult.MemoryKB = result.MemoryKB
-	return result, nil
-}
-```
-
-Adapt names to the existing engine loop. Preserve priority: TLE first, then MLE, then RE.
-
-**Step 6: Verify and commit**
-
-Run:
-
-```bash
-go test ./internal/judge ./internal/sandbox -count=1
-```
-
-Expected: PASS.
-
-Commit:
-
-```bash
-git add internal/judge/verdict.go internal/judge/types.go internal/judge/engine.go internal/judge/engine_test.go internal/sandbox/types.go internal/sandbox/mock.go
-git commit -m "feat: add MLE verdict to judge"
-```
+- RED: `go test ./internal/judge -run TestJudgeMemoryLimitExceeded -count=1` failed because `MLE`, `MemoryExceeded`, and `MOCK_MLE` did not exist.
+- GREEN: `go test ./internal/judge ./internal/sandbox -count=1` passed.
 
 ---
 
