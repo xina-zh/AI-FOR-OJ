@@ -16,6 +16,7 @@ func AllModels() []any {
 		&JudgeResult{},
 		&SubmissionTestCaseResult{},
 		&AISolveRun{},
+		&AISolveAttempt{},
 		&Experiment{},
 		&ExperimentRepeat{},
 		&ExperimentCompare{},
