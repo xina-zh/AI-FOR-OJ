@@ -166,6 +166,54 @@ func TestJudgeSubmissionServiceSubmit(t *testing.T) {
 	}
 }
 
+func TestJudgeSubmissionPersistsMemoryExceeded(t *testing.T) {
+	problemRepo := fakeProblemRepository{
+		problem: &model.Problem{
+			BaseModel:     model.BaseModel{ID: 1},
+			TimeLimitMS:   1000,
+			MemoryLimitMB: 64,
+			TestCases: []model.TestCase{
+				{CreatedModel: model.CreatedModel{ID: 10}, Input: "1", ExpectedOutput: "1"},
+			},
+		},
+	}
+	submissionRepo := &fakeSubmissionRepository{}
+	engine := fakeJudgeEngine{
+		result: judge.Result{
+			Verdict:        judge.VerdictMemoryLimitExceeded,
+			RuntimeMS:      1,
+			MemoryKB:       64 * 1024,
+			MemoryExceeded: true,
+			TotalCount:     1,
+			ExecStage:      "run",
+			ErrorMessage:   "memory limit exceeded",
+			TestCaseResults: []judge.TestCaseResult{
+				{TestCaseID: 10, CaseIndex: 1, Verdict: judge.VerdictMemoryLimitExceeded, MemoryExceeded: true},
+			},
+		},
+	}
+	service := NewJudgeSubmissionService(problemRepo, submissionRepo, engine)
+
+	output, err := service.Submit(context.Background(), JudgeSubmissionInput{
+		ProblemID:  1,
+		SourceCode: "MOCK_MLE",
+		Language:   model.LanguageCPP17,
+	})
+	if err != nil {
+		t.Fatalf("submit returned error: %v", err)
+	}
+
+	if output.Verdict != judge.VerdictMemoryLimitExceeded || !output.MemoryExceeded {
+		t.Fatalf("expected MLE output, got %+v", output)
+	}
+	if submissionRepo.judgeResult == nil || !submissionRepo.judgeResult.MemoryExceeded {
+		t.Fatalf("expected persisted judge result memory flag, got %+v", submissionRepo.judgeResult)
+	}
+	if len(submissionRepo.testCaseResults) != 1 || !submissionRepo.testCaseResults[0].MemoryExceeded {
+		t.Fatalf("expected persisted testcase memory flag, got %+v", submissionRepo.testCaseResults)
+	}
+}
+
 func TestJudgeSubmissionServiceSubmitRejectsUnsupportedLanguage(t *testing.T) {
 	service := NewJudgeSubmissionService(
 		fakeProblemRepository{},

@@ -51,16 +51,17 @@ func (h *SubmissionHandler) Judge(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, dto.JudgeSubmissionResponse{
-		SubmissionID: output.SubmissionID,
-		ProblemID:    output.ProblemID,
-		Language:     output.Language,
-		SourceType:   output.SourceType,
-		Verdict:      output.Verdict,
-		RuntimeMS:    output.RuntimeMS,
-		MemoryKB:     output.MemoryKB,
-		PassedCount:  output.PassedCount,
-		TotalCount:   output.TotalCount,
-		ErrorMessage: output.ErrorMessage,
+		SubmissionID:   output.SubmissionID,
+		ProblemID:      output.ProblemID,
+		Language:       output.Language,
+		SourceType:     output.SourceType,
+		Verdict:        output.Verdict,
+		RuntimeMS:      output.RuntimeMS,
+		MemoryKB:       output.MemoryKB,
+		PassedCount:    output.PassedCount,
+		TotalCount:     output.TotalCount,
+		MemoryExceeded: output.MemoryExceeded,
+		ErrorMessage:   output.ErrorMessage,
 	})
 }
 
@@ -159,35 +160,37 @@ func (h *SubmissionHandler) Get(c *gin.Context) {
 	var judgeResult *dto.SubmissionJudgeResultResponse
 	if output.JudgeResult != nil {
 		judgeResult = &dto.SubmissionJudgeResultResponse{
-			ID:            output.JudgeResult.ID,
-			Verdict:       output.JudgeResult.Verdict,
-			RuntimeMS:     output.JudgeResult.RuntimeMS,
-			MemoryKB:      output.JudgeResult.MemoryKB,
-			PassedCount:   output.JudgeResult.PassedCount,
-			TotalCount:    output.JudgeResult.TotalCount,
-			CompileStderr: output.JudgeResult.CompileStderr,
-			RunStdout:     output.JudgeResult.RunStdout,
-			RunStderr:     output.JudgeResult.RunStderr,
-			ExitCode:      output.JudgeResult.ExitCode,
-			TimedOut:      output.JudgeResult.TimedOut,
-			ExecStage:     output.JudgeResult.ExecStage,
-			ErrorMessage:  output.JudgeResult.ErrorMessage,
-			CreatedAt:     output.JudgeResult.CreatedAt,
-			UpdatedAt:     output.JudgeResult.UpdatedAt,
+			ID:             output.JudgeResult.ID,
+			Verdict:        output.JudgeResult.Verdict,
+			RuntimeMS:      output.JudgeResult.RuntimeMS,
+			MemoryKB:       output.JudgeResult.MemoryKB,
+			PassedCount:    output.JudgeResult.PassedCount,
+			TotalCount:     output.JudgeResult.TotalCount,
+			CompileStderr:  output.JudgeResult.CompileStderr,
+			RunStdout:      output.JudgeResult.RunStdout,
+			RunStderr:      output.JudgeResult.RunStderr,
+			ExitCode:       output.JudgeResult.ExitCode,
+			TimedOut:       output.JudgeResult.TimedOut,
+			MemoryExceeded: output.JudgeResult.MemoryExceeded,
+			ExecStage:      output.JudgeResult.ExecStage,
+			ErrorMessage:   output.JudgeResult.ErrorMessage,
+			CreatedAt:      output.JudgeResult.CreatedAt,
+			UpdatedAt:      output.JudgeResult.UpdatedAt,
 		}
 	}
 
 	testCaseResults := make([]dto.SubmissionTestCaseResultResponse, 0, len(output.TestCaseResults))
 	for _, item := range output.TestCaseResults {
 		testCaseResults = append(testCaseResults, dto.SubmissionTestCaseResultResponse{
-			TestCaseID: item.TestCaseID,
-			CaseIndex:  item.CaseIndex,
-			Verdict:    item.Verdict,
-			RuntimeMS:  item.RuntimeMS,
-			Stdout:     item.Stdout,
-			Stderr:     item.Stderr,
-			ExitCode:   item.ExitCode,
-			TimedOut:   item.TimedOut,
+			TestCaseID:     item.TestCaseID,
+			CaseIndex:      item.CaseIndex,
+			Verdict:        item.Verdict,
+			RuntimeMS:      item.RuntimeMS,
+			Stdout:         item.Stdout,
+			Stderr:         item.Stderr,
+			ExitCode:       item.ExitCode,
+			TimedOut:       item.TimedOut,
+			MemoryExceeded: item.MemoryExceeded,
 		})
 	}
 
@@ -208,6 +211,7 @@ func (h *SubmissionHandler) Get(c *gin.Context) {
 		RunStderr:       output.RunStderr,
 		ExitCode:        output.ExitCode,
 		TimedOut:        output.TimedOut,
+		MemoryExceeded:  output.MemoryExceeded,
 		ExecStage:       output.ExecStage,
 		ErrorMessage:    output.ErrorMessage,
 		CreatedAt:       output.CreatedAt,
