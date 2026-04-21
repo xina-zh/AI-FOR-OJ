@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -159,7 +158,7 @@ func (s *AISolveService) Solve(ctx context.Context, input AISolveInput) (*AISolv
 		return s.failRun(solveCtx, run, output, startedAt, fmt.Sprintf("%v: %v", ErrAISolveLLMFailed, err), fmt.Errorf("%w: %v", ErrAISolveLLMFailed, err))
 	}
 
-	code := extractCPPCode(agentOutput.RawResponse)
+	code := agent.ExtractCPPCode(agentOutput.RawResponse)
 	lastJudgeOutput, err := s.submitAttempt(solveCtx, input.ProblemID, code, run, output, startedAt)
 	if err != nil {
 		return output, err
@@ -192,7 +191,7 @@ func (s *AISolveService) Solve(ctx context.Context, input AISolveInput) (*AISolv
 			return s.failRun(solveCtx, run, output, startedAt, fmt.Sprintf("%v: %v", ErrAISolveLLMFailed, llmErr), fmt.Errorf("%w: %v", ErrAISolveLLMFailed, llmErr))
 		}
 
-		code = extractCPPCode(llmResp.Content)
+		code = agent.ExtractCPPCode(llmResp.Content)
 		lastJudgeOutput, err = s.submitAttempt(solveCtx, input.ProblemID, code, run, output, startedAt)
 		if err != nil {
 			return output, err
@@ -285,26 +284,6 @@ func (s *AISolveService) failRun(
 	}
 	syncAISolveOutputFromRun(output, run)
 	return output, returnErr
-}
-
-var (
-	cppFencePattern     = regexp.MustCompile("(?is)```(?:cpp|c\\+\\+|cc|cxx)\\s*(.*?)```")
-	genericFencePattern = regexp.MustCompile("(?is)```(?:[a-z0-9_+-]+)?\\s*(.*?)```")
-)
-
-func extractCPPCode(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-
-	if matches := cppFencePattern.FindStringSubmatch(raw); len(matches) >= 2 {
-		return strings.TrimSpace(matches[1])
-	}
-	if matches := genericFencePattern.FindStringSubmatch(raw); len(matches) >= 2 {
-		return strings.TrimSpace(matches[1])
-	}
-	return ""
 }
 
 func truncateForPreview(value string, limit int) string {
