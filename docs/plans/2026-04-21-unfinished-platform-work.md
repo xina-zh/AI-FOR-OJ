@@ -80,112 +80,23 @@ Expected:
 
 ---
 
-### Task 2: Route DeepSeek Models Through the OpenAI-Compatible Client
+### Completed Task 2 Summary: Route DeepSeek Models Through the OpenAI-Compatible Client
 
-**Files:**
+**Implemented:**
 
-- Modify: `internal/llm/client.go`
-- Modify: `internal/llm/client_test.go`
-- Modify: `README.md`
-- Test: `internal/llm/client_test.go`
+- Added DeepSeek model-prefix routing in `internal/llm/client.go`.
+- `deepseek-*` request models and default models now route to the DeepSeek endpoint.
+- DeepSeek route configuration fails fast if route fields are configured without `DeepSeekAPIKey`.
+- Added route tests in `internal/llm/client_test.go` for:
+  - request-level `deepseek-chat`;
+  - default-model `deepseek-reasoner`;
+  - missing DeepSeek API key.
+- Documented `LLM_DEEPSEEK_*` environment variables and YAML config in `README.md`.
 
-**Step 1: Write request-model routing test**
+**Verification:**
 
-Add `TestOpenAICompatibleClientRoutesDeepSeekModelsByRequestModel` to `internal/llm/client_test.go`.
-
-The test should:
-
-- create a DeepSeek `httptest.Server`;
-- create a default endpoint server that fails if called;
-- configure `config.LLMConfig{Provider: ProviderOpenAICompatible, APIKey: "default-key", BaseURL: defaultServer.URL, DeepSeekBaseURL: deepseekServer.URL, DeepSeekAPIKey: "deepseek-key", DeepSeekModelPrefix: "deepseek-"}`;
-- call `Generate` with `Model: "deepseek-chat"`;
-- assert request path is `/chat/completions`;
-- assert auth header is `Bearer deepseek-key`;
-- assert response model and token usage are returned.
-
-**Step 2: Write default-model routing and missing-key tests**
-
-Add tests:
-
-```go
-func TestOpenAICompatibleClientRoutesDeepSeekModelsByDefaultModel(t *testing.T) { /* same setup, cfg.Model = "deepseek-reasoner", req.Model empty */ }
-
-func TestNewClientOpenAICompatibleRequiresDeepSeekAPIKeyWhenRouteConfigured(t *testing.T) {
-	_, err := NewClient(config.LLMConfig{
-		Provider:            ProviderOpenAICompatible,
-		APIKey:              "default-key",
-		DeepSeekModelPrefix: "deepseek-",
-	}, slog.Default())
-	if err == nil || !strings.Contains(err.Error(), "deepseek api key") {
-		t.Fatalf("expected deepseek api key error, got %v", err)
-	}
-}
-```
-
-**Step 3: Run failing tests**
-
-Run:
-
-```bash
-go test ./internal/llm -run 'DeepSeek|RequiresDeepSeek' -count=1
-```
-
-Expected: FAIL because DeepSeek route is not wired.
-
-**Step 4: Implement DeepSeek route**
-
-In `NewClient`, after GLM route setup, add:
-
-```go
-if strings.TrimSpace(cfg.DeepSeekBaseURL) != "" || strings.TrimSpace(cfg.DeepSeekAPIKey) != "" || strings.TrimSpace(cfg.DeepSeekModelPrefix) != "" {
-	if strings.TrimSpace(cfg.DeepSeekAPIKey) == "" {
-		return nil, fmt.Errorf("llm deepseek api key is required when deepseek route is configured")
-	}
-	deepseekEndpoint, err := newOpenAICompatibleEndpoint(defaultString(cfg.DeepSeekBaseURL, "https://api.deepseek.com"), cfg.DeepSeekAPIKey)
-	if err != nil {
-		return nil, fmt.Errorf("invalid llm deepseek route: %w", err)
-	}
-	routes = append(routes, modelEndpointRoute{
-		modelPrefix: defaultString(cfg.DeepSeekModelPrefix, "deepseek-"),
-		endpoint:    deepseekEndpoint,
-	})
-}
-```
-
-Keep GLM route behavior unchanged.
-
-**Step 5: Document usage**
-
-Add a short README section showing:
-
-```yaml
-llm:
-  provider: openai_compatible
-  base_url: https://api.openai.com/v1
-  api_key: your-default-key
-  deepseek_base_url: https://api.deepseek.com
-  deepseek_api_key: your-deepseek-key
-  deepseek_model_prefix: deepseek-
-```
-
-Explain that request model `deepseek-chat` and `deepseek-reasoner` route to DeepSeek.
-
-**Step 6: Verify and commit**
-
-Run:
-
-```bash
-go test ./internal/llm ./internal/config -count=1
-```
-
-Expected: PASS.
-
-Commit:
-
-```bash
-git add internal/llm/client.go internal/llm/client_test.go internal/config/config.go internal/config/config_test.go configs/config.example.yaml README.md
-git commit -m "feat: route deepseek models"
-```
+- RED: `go test ./internal/llm -run 'DeepSeek|RequiresDeepSeek' -count=1` failed because DeepSeek models still used the default endpoint and missing-key validation was absent.
+- GREEN: `go test ./internal/llm ./internal/config -count=1` passed.
 
 ---
 

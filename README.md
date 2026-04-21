@@ -295,11 +295,35 @@ export LLM_GLM_API_KEY=your-zhipu-api-key
 export LLM_GLM_MODEL_PREFIX=glm-
 ```
 
+如果要把 `deepseek-*` 模型切到 DeepSeek API，可额外配置：
+
+```bash
+export LLM_DEEPSEEK_BASE_URL=https://api.deepseek.com
+export LLM_DEEPSEEK_API_KEY=your-deepseek-key
+export LLM_DEEPSEEK_MODEL_PREFIX=deepseek-
+```
+
+等价的 YAML 配置示例：
+
+```yaml
+llm:
+  provider: openai_compatible
+  base_url: https://api.openai.com/v1
+  api_key: your-default-key
+  model: your-default-model
+  deepseek_base_url: https://api.deepseek.com
+  deepseek_api_key: your-deepseek-key
+  deepseek_model_prefix: deepseek-
+```
+
+请求里传 `deepseek-chat` 或 `deepseek-reasoner` 时，会自动走 DeepSeek endpoint；其它模型继续走默认 `LLM_BASE_URL`，`glm-*` 仍按 `LLM_GLM_*` 路由。
+
 说明：
 
 - 当前只接 `OpenAI-compatible /v1/chat/completions`
 - 模型名以中转站实际支持的名称为准
 - 配置 `LLM_GLM_*` 后，`glm-*` 会自动走智谱 API，其它模型仍走默认 `LLM_BASE_URL`
+- 配置 `LLM_DEEPSEEK_*` 后，`deepseek-*` 会自动走 DeepSeek API，其它模型仍走默认 `LLM_BASE_URL`
 - 每次 AI solve / experiment / compare / repeat 都会优先使用请求指定的 `model`
 - 未显式传入时，再 fallback 到默认 `LLM_MODEL`
 - 每次 AI solve 都会记录实际 `model`
