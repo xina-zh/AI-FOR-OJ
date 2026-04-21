@@ -37,3 +37,10 @@ func TestDockerSandboxMemoryLimitArgFallsBackToDefault(t *testing.T) {
 		t.Fatalf("expected memory limit 256m, got %s", got)
 	}
 }
+
+func TestDockerSandboxRunResultForOOM(t *testing.T) {
+	result := runResultForOOM("Killed", 137, 64)
+	if !result.MemoryExceeded || !result.RuntimeError || result.MemoryKB < 64*1024 {
+		t.Fatalf("expected memory exceeded result, got %+v", result)
+	}
+}
