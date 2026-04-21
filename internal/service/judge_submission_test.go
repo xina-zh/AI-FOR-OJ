@@ -170,6 +170,61 @@ func TestJudgeSubmissionServiceSubmit(t *testing.T) {
 	}
 }
 
+func TestJudgeSubmissionServiceSubmitPersistsMemoryExceeded(t *testing.T) {
+	problemRepo := fakeProblemRepository{
+		problem: &model.Problem{
+			BaseModel: model.BaseModel{ID: 42},
+			TestCases: []model.TestCase{
+				{CreatedModel: model.CreatedModel{ID: 1}, Input: "1", ExpectedOutput: "1"},
+			},
+		},
+	}
+	submissionRepo := &fakeSubmissionRepository{}
+	engine := fakeJudgeEngine{
+		result: judge.Result{
+			Verdict:        judge.VerdictMemoryLimitExceeded,
+			MemoryExceeded: true,
+			MemoryKB:       64 * 1024,
+			PassedCount:    0,
+			TotalCount:     1,
+			TestCaseResults: []judge.TestCaseResult{
+				{
+					TestCaseID:     1,
+					CaseIndex:      1,
+					Verdict:        judge.VerdictMemoryLimitExceeded,
+					MemoryExceeded: true,
+					RuntimeMS:      12,
+					Stderr:         "Killed",
+					ExitCode:       137,
+				},
+			},
+		},
+	}
+
+	service := NewJudgeSubmissionService(problemRepo, submissionRepo, engine)
+	output, err := service.Submit(context.Background(), JudgeSubmissionInput{
+		ProblemID:  42,
+		SourceCode: "int main() { return 0; }",
+		Language:   model.LanguageCPP17,
+	})
+	if err != nil {
+		t.Fatalf("submit returned error: %v", err)
+	}
+
+	if submissionRepo.judgeResult == nil || !submissionRepo.judgeResult.MemoryExceeded {
+		t.Fatalf("expected persisted judge result memory exceeded, got %+v", submissionRepo.judgeResult)
+	}
+	if len(submissionRepo.testCaseResults) != 1 || !submissionRepo.testCaseResults[0].MemoryExceeded {
+		t.Fatalf("expected persisted testcase memory exceeded, got %+v", submissionRepo.testCaseResults)
+	}
+	if !output.MemoryExceeded {
+		t.Fatalf("expected output memory exceeded, got %+v", output)
+	}
+	if len(output.TestCaseResults) != 1 || !output.TestCaseResults[0].MemoryExceeded {
+		t.Fatalf("expected output testcase memory exceeded, got %+v", output.TestCaseResults)
+	}
+}
+
 func TestJudgeSubmissionServiceSubmitRejectsUnsupportedLanguage(t *testing.T) {
 	service := NewJudgeSubmissionService(
 		fakeProblemRepository{},

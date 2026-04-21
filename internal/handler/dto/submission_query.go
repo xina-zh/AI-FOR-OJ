@@ -23,32 +23,34 @@ type SubmissionProblemStatsResponse struct {
 }
 
 type SubmissionJudgeResultResponse struct {
-	ID            uint      `json:"id"`
-	Verdict       string    `json:"verdict"`
-	RuntimeMS     int       `json:"runtime_ms"`
-	MemoryKB      int       `json:"memory_kb"`
-	PassedCount   int       `json:"passed_count"`
-	TotalCount    int       `json:"total_count"`
-	CompileStderr string    `json:"compile_stderr,omitempty"`
-	RunStdout     string    `json:"run_stdout,omitempty"`
-	RunStderr     string    `json:"run_stderr,omitempty"`
-	ExitCode      int       `json:"exit_code"`
-	TimedOut      bool      `json:"timed_out"`
-	ExecStage     string    `json:"exec_stage,omitempty"`
-	ErrorMessage  string    `json:"error_message,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID             uint      `json:"id"`
+	Verdict        string    `json:"verdict"`
+	RuntimeMS      int       `json:"runtime_ms"`
+	MemoryKB       int       `json:"memory_kb"`
+	PassedCount    int       `json:"passed_count"`
+	TotalCount     int       `json:"total_count"`
+	CompileStderr  string    `json:"compile_stderr,omitempty"`
+	RunStdout      string    `json:"run_stdout,omitempty"`
+	RunStderr      string    `json:"run_stderr,omitempty"`
+	ExitCode       int       `json:"exit_code"`
+	TimedOut       bool      `json:"timed_out"`
+	MemoryExceeded bool      `json:"memory_exceeded"`
+	ExecStage      string    `json:"exec_stage,omitempty"`
+	ErrorMessage   string    `json:"error_message,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type SubmissionTestCaseResultResponse struct {
-	TestCaseID uint   `json:"testcase_id"`
-	CaseIndex  int    `json:"index"`
-	Verdict    string `json:"verdict"`
-	RuntimeMS  int    `json:"runtime_ms"`
-	Stdout     string `json:"stdout,omitempty"`
-	Stderr     string `json:"stderr,omitempty"`
-	ExitCode   int    `json:"exit_code"`
-	TimedOut   bool   `json:"timed_out"`
+	TestCaseID     uint   `json:"testcase_id"`
+	CaseIndex      int    `json:"index"`
+	Verdict        string `json:"verdict"`
+	RuntimeMS      int    `json:"runtime_ms"`
+	Stdout         string `json:"stdout,omitempty"`
+	Stderr         string `json:"stderr,omitempty"`
+	ExitCode       int    `json:"exit_code"`
+	TimedOut       bool   `json:"timed_out"`
+	MemoryExceeded bool   `json:"memory_exceeded"`
 }
 
 type SubmissionSummaryResponse struct {
@@ -82,6 +84,7 @@ type SubmissionDetailResponse struct {
 	RunStderr       string                             `json:"run_stderr,omitempty"`
 	ExitCode        int                                `json:"exit_code"`
 	TimedOut        bool                               `json:"timed_out"`
+	MemoryExceeded  bool                               `json:"memory_exceeded"`
 	ExecStage       string                             `json:"exec_stage,omitempty"`
 	ErrorMessage    string                             `json:"error_message,omitempty"`
 	CreatedAt       time.Time                          `json:"created_at"`

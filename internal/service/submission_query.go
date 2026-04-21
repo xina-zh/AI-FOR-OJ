@@ -11,32 +11,34 @@ import (
 )
 
 type SubmissionJudgeResultOutput struct {
-	ID            uint      `json:"id"`
-	Verdict       string    `json:"verdict"`
-	RuntimeMS     int       `json:"runtime_ms"`
-	MemoryKB      int       `json:"memory_kb"`
-	PassedCount   int       `json:"passed_count"`
-	TotalCount    int       `json:"total_count"`
-	CompileStderr string    `json:"compile_stderr,omitempty"`
-	RunStdout     string    `json:"run_stdout,omitempty"`
-	RunStderr     string    `json:"run_stderr,omitempty"`
-	ExitCode      int       `json:"exit_code"`
-	TimedOut      bool      `json:"timed_out"`
-	ExecStage     string    `json:"exec_stage,omitempty"`
-	ErrorMessage  string    `json:"error_message,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID             uint      `json:"id"`
+	Verdict        string    `json:"verdict"`
+	RuntimeMS      int       `json:"runtime_ms"`
+	MemoryKB       int       `json:"memory_kb"`
+	PassedCount    int       `json:"passed_count"`
+	TotalCount     int       `json:"total_count"`
+	CompileStderr  string    `json:"compile_stderr,omitempty"`
+	RunStdout      string    `json:"run_stdout,omitempty"`
+	RunStderr      string    `json:"run_stderr,omitempty"`
+	ExitCode       int       `json:"exit_code"`
+	TimedOut       bool      `json:"timed_out"`
+	MemoryExceeded bool      `json:"memory_exceeded"`
+	ExecStage      string    `json:"exec_stage,omitempty"`
+	ErrorMessage   string    `json:"error_message,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type SubmissionTestCaseResultOutput struct {
-	TestCaseID uint   `json:"testcase_id"`
-	CaseIndex  int    `json:"index"`
-	Verdict    string `json:"verdict"`
-	RuntimeMS  int    `json:"runtime_ms"`
-	Stdout     string `json:"stdout,omitempty"`
-	Stderr     string `json:"stderr,omitempty"`
-	ExitCode   int    `json:"exit_code"`
-	TimedOut   bool   `json:"timed_out"`
+	TestCaseID     uint   `json:"testcase_id"`
+	CaseIndex      int    `json:"index"`
+	Verdict        string `json:"verdict"`
+	RuntimeMS      int    `json:"runtime_ms"`
+	Stdout         string `json:"stdout,omitempty"`
+	Stderr         string `json:"stderr,omitempty"`
+	ExitCode       int    `json:"exit_code"`
+	TimedOut       bool   `json:"timed_out"`
+	MemoryExceeded bool   `json:"memory_exceeded"`
 }
 
 type SubmissionSummaryOutput struct {
@@ -70,6 +72,7 @@ type SubmissionDetailOutput struct {
 	RunStderr       string                           `json:"run_stderr,omitempty"`
 	ExitCode        int                              `json:"exit_code"`
 	TimedOut        bool                             `json:"timed_out"`
+	MemoryExceeded  bool                             `json:"memory_exceeded"`
 	ExecStage       string                           `json:"exec_stage,omitempty"`
 	ErrorMessage    string                           `json:"error_message,omitempty"`
 	CreatedAt       time.Time                        `json:"created_at"`
@@ -214,38 +217,41 @@ func toSubmissionDetailOutput(submission model.Submission) SubmissionDetailOutpu
 		output.RunStderr = submission.JudgeResult.RunStderr
 		output.ExitCode = submission.JudgeResult.ExitCode
 		output.TimedOut = submission.JudgeResult.TimedOut
+		output.MemoryExceeded = submission.JudgeResult.MemoryExceeded
 		output.ExecStage = submission.JudgeResult.ExecStage
 		output.ErrorMessage = submission.JudgeResult.ErrorMessage
 		output.JudgeResult = &SubmissionJudgeResultOutput{
-			ID:            submission.JudgeResult.ID,
-			Verdict:       submission.JudgeResult.Verdict,
-			RuntimeMS:     submission.JudgeResult.RuntimeMS,
-			MemoryKB:      submission.JudgeResult.MemoryKB,
-			PassedCount:   submission.JudgeResult.PassedCount,
-			TotalCount:    submission.JudgeResult.TotalCount,
-			CompileStderr: submission.JudgeResult.CompileStderr,
-			RunStdout:     submission.JudgeResult.RunStdout,
-			RunStderr:     submission.JudgeResult.RunStderr,
-			ExitCode:      submission.JudgeResult.ExitCode,
-			TimedOut:      submission.JudgeResult.TimedOut,
-			ExecStage:     submission.JudgeResult.ExecStage,
-			ErrorMessage:  submission.JudgeResult.ErrorMessage,
-			CreatedAt:     submission.JudgeResult.CreatedAt,
-			UpdatedAt:     submission.JudgeResult.UpdatedAt,
+			ID:             submission.JudgeResult.ID,
+			Verdict:        submission.JudgeResult.Verdict,
+			RuntimeMS:      submission.JudgeResult.RuntimeMS,
+			MemoryKB:       submission.JudgeResult.MemoryKB,
+			PassedCount:    submission.JudgeResult.PassedCount,
+			TotalCount:     submission.JudgeResult.TotalCount,
+			CompileStderr:  submission.JudgeResult.CompileStderr,
+			RunStdout:      submission.JudgeResult.RunStdout,
+			RunStderr:      submission.JudgeResult.RunStderr,
+			ExitCode:       submission.JudgeResult.ExitCode,
+			TimedOut:       submission.JudgeResult.TimedOut,
+			MemoryExceeded: submission.JudgeResult.MemoryExceeded,
+			ExecStage:      submission.JudgeResult.ExecStage,
+			ErrorMessage:   submission.JudgeResult.ErrorMessage,
+			CreatedAt:      submission.JudgeResult.CreatedAt,
+			UpdatedAt:      submission.JudgeResult.UpdatedAt,
 		}
 	}
 	if len(submission.TestCaseResults) > 0 {
 		output.TestCaseResults = make([]SubmissionTestCaseResultOutput, 0, len(submission.TestCaseResults))
 		for _, item := range submission.TestCaseResults {
 			output.TestCaseResults = append(output.TestCaseResults, SubmissionTestCaseResultOutput{
-				TestCaseID: item.TestCaseID,
-				CaseIndex:  item.CaseIndex,
-				Verdict:    item.Verdict,
-				RuntimeMS:  item.RuntimeMS,
-				Stdout:     item.Stdout,
-				Stderr:     item.Stderr,
-				ExitCode:   item.ExitCode,
-				TimedOut:   item.TimedOut,
+				TestCaseID:     item.TestCaseID,
+				CaseIndex:      item.CaseIndex,
+				Verdict:        item.Verdict,
+				RuntimeMS:      item.RuntimeMS,
+				Stdout:         item.Stdout,
+				Stderr:         item.Stderr,
+				ExitCode:       item.ExitCode,
+				TimedOut:       item.TimedOut,
+				MemoryExceeded: item.MemoryExceeded,
 			})
 		}
 	}
