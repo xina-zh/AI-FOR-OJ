@@ -51,6 +51,7 @@ llm:
   # glm_model_prefix: glm-
   # Optional: route deepseek-* models to DeepSeek while keeping request-level model selection.
   # DeepSeek API is OpenAI-compatible. Official base URL: https://api.deepseek.com
+  # Leave these fields empty to keep the DeepSeek route disabled.
   # deepseek_base_url: https://api.deepseek.com
   # deepseek_api_key: your-deepseek-api-key
   # deepseek_model_prefix: deepseek-

@@ -26,6 +26,11 @@
 - 最小 verdict 分布、按题稳定性、按题差异分析
 - Experiment / Compare / Repeat 成本汇总
 - Compare 结构化实验结论
+- DeepSeek / GLM 前缀路由
+- `MLE` 与 `memory_exceeded` 判题信号
+- `adaptive_repair_v1` 尝试级可观测记录
+- `sample_judge` 工具与 `tooling_codegen_v1`
+- React 实验控制台
 
 对应的阶段总结文档见：
 
@@ -54,7 +59,9 @@
   - `CE`
   - `RE`
   - `TLE`
+  - `MLE`
   - `UNJUDGEABLE`
+- `MLE` 表示容器被内存限制杀死或沙箱明确返回内存超限；API 会同时返回 `memory_exceeded=true`
 
 ### Submission 与判题可观测层
 
@@ -69,6 +76,7 @@
   - `verdict`
   - `runtime_ms`
   - `memory_kb`
+  - `memory_exceeded`
   - `passed_count`
   - `total_count`
   - `compile_stderr`
@@ -99,10 +107,14 @@
   - `direct_codegen`
   - `direct_codegen_repair`
   - `analyze_then_codegen`
+  - `adaptive_repair_v1`
+  - `tooling_codegen_v1`
 - `direct_codegen_repair` 支持最小失败后修复闭环
   - 首次生成代码并判题
   - 非 `AC` 时基于上一轮代码与判题反馈继续修复
   - 最多总尝试 3 次
+- `adaptive_repair_v1` 会按 `WA / RE / TLE / MLE` 等失败类型选择不同修复阶段，并持久化每次尝试
+- `tooling_codegen_v1` 可在启用 `sample_judge` 时先运行样例反馈，再决定是否追加一次修复
 - AI 提交已标记
   - `source_type = ai`
 - `AISolveRun` 当前可回看
@@ -116,6 +128,12 @@
   - `verdict`
   - `status`
   - `error_message`
+  - `attempt_count`
+  - `failure_type`
+  - `strategy_path`
+  - `tooling_config`
+  - `tool_call_count`
+  - `attempts`
   - `token_input`
   - `token_output`
   - `llm_latency_ms`
@@ -128,11 +146,17 @@
   - `GET /api/v1/experiments/:id`
 - 最小单变量 compare
   - `POST /api/v1/experiments/compare`
+  - `GET /api/v1/experiments/compare`
   - `GET /api/v1/experiments/compare/:id`
-  - 当前可用于 `model / prompt / agent` 等单变量对比
+  - 当前可用于 `model / prompt / agent / tooling` 等单变量对比
 - 最小 repeat 实验
   - `POST /api/v1/experiments/repeat`
+  - `GET /api/v1/experiments/repeat`
   - `GET /api/v1/experiments/repeat/:id`
+- 实验历史与 trace
+  - `GET /api/v1/experiments`
+  - `GET /api/v1/experiment-runs/:id/trace`
+  - `GET /api/v1/meta/experiment-options`
 
 ### 最小分析层
 
@@ -187,12 +211,13 @@ python3 scripts/import_problems.py --dir ./problems/ready
 当前已经完成真实验证的内容包括：
 
 - `DockerSandbox` 能真实编译并运行 `cpp17`
-- `AC / WA / CE / RE / TLE` 已经过真实链路验证
+- `AC / WA / CE / RE / TLE / MLE` 已经过真实链路或单元测试覆盖
 - `UNJUDGEABLE` 语义已接入并用于“无 testcase 不可评测”
+- Docker OOMKilled 会映射为 `MLE`，并持久化 `memory_exceeded=true`
 - submission / judge result / testcase result 能正确落库与查询
 - 最小 AI solve 闭环已验收通过
 - experiment / compare / repeat 的最小 service 链路已通过测试与构建验证
-- 请求级 `model / prompt_name / agent_name` 已打通到底层 LLM 调用
+- 请求级 `model / prompt_name / agent_name / tooling_config` 已打通到底层 LLM 调用
 - 真实 OpenAI-compatible 网关下，已验证可在同一容器内切换不同模型
 - 中文题目、中文 prompt preview、中文 error message 已可稳定写库
 
@@ -204,6 +229,9 @@ python3 scripts/import_problems.py --dir ./problems/ready
 - `direct_codegen` 当前为单次生成，不自动修复
 - `direct_codegen_repair` 当前为单次生成 + 最多 2 次修复重试
 - `analyze_then_codegen` 当前为“分析后生成代码”的两步 agent，不自动修复
+- `adaptive_repair_v1` 当前最多 3 次尝试，并记录每轮 stage、verdict、failure_type、token 和 latency
+- `tooling_codegen_v1` 默认不调用工具；只有 `tooling_config.enabled` 包含 `sample_judge` 时才会运行样例判题
+- `tooling_config` 默认 `{}`，表示禁用工具
 - compare 中按题变化当前采用最小规则
   - `regressed`
   - `improved`
@@ -217,13 +245,11 @@ python3 scripts/import_problems.py --dir ./problems/ready
 当前阶段明确还没有展开的内容包括：
 
 - 异步执行 / 后台任务 / 队列系统
-- tooling / verifier / critic / planner
 - 多变量实验矩阵
 - 多语言支持
 - stronger sandbox / 更严格隔离
 - special judge
 - 通用 benchmark 分析平台
-- 前端页面与可视化展示
 
 ## 当前数据库迁移策略
 
@@ -294,6 +320,24 @@ npm run dev
 cd web
 npm run build
 ```
+
+单元测试：
+
+```bash
+cd web
+npm run test
+```
+
+E2E smoke：
+
+```bash
+cd web
+npm run build
+npx playwright install chromium
+npm run e2e
+```
+
+`npm run e2e` 使用 Playwright 启动 Vite preview，并通过 mocked API 覆盖 dashboard、options metadata、problem list、solve submit 和 compare detail。首次运行需要安装浏览器二进制。
 
 ## LLM Provider 切换
 
@@ -367,12 +411,25 @@ llm:
 - `direct_codegen`
 - `direct_codegen_repair`
 - `analyze_then_codegen`
+- `adaptive_repair_v1`
+- `tooling_codegen_v1`
 
 说明：
 
 - `prompt_name` 控制提示词模板
 - `agent_name` 控制解题编排策略
-- compare 可用于同模型下比较不同 prompt 或不同 agent
+- `tooling_config` 控制是否允许 agent 使用工具；默认 `{}` 为禁用
+- compare 可用于同模型下比较不同 prompt、agent 或 tooling
+
+常用 `tooling_config` 示例：
+
+```json
+{}
+```
+
+```json
+{"enabled":["sample_judge"],"max_calls":1}
+```
 
 ## 当前路线说明
 
