@@ -83,6 +83,70 @@ type ExperimentOutput struct {
 	Runs                []ExperimentRunOutput `json:"runs"`
 }
 
+type ExperimentListInput struct {
+	Page     int
+	PageSize int
+}
+
+type ExperimentListOutput struct {
+	Items      []ExperimentOutput `json:"items"`
+	Page       int                `json:"page"`
+	PageSize   int                `json:"page_size"`
+	Total      int64              `json:"total"`
+	TotalPages int                `json:"total_pages"`
+}
+
+type ExperimentRunTraceEventOutput struct {
+	ID         uint      `json:"id"`
+	SequenceNo int       `json:"sequence_no"`
+	StepType   string    `json:"step_type"`
+	Content    string    `json:"content"`
+	Metadata   string    `json:"metadata"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type ExperimentTraceAISolveRunOutput struct {
+	ID             uint   `json:"id"`
+	Status         string `json:"status"`
+	Verdict        string `json:"verdict"`
+	AttemptCount   int    `json:"attempt_count"`
+	FailureType    string `json:"failure_type,omitempty"`
+	StrategyPath   string `json:"strategy_path,omitempty"`
+	ToolingConfig  string `json:"tooling_config"`
+	ToolCallCount  int    `json:"tool_call_count"`
+	TokenInput     int64  `json:"token_input"`
+	TokenOutput    int64  `json:"token_output"`
+	LLMLatencyMS   int    `json:"llm_latency_ms"`
+	TotalLatencyMS int    `json:"total_latency_ms"`
+}
+
+type ExperimentTraceSubmissionOutput struct {
+	ID          uint   `json:"id"`
+	ProblemID   uint   `json:"problem_id"`
+	Language    string `json:"language"`
+	SourceType  string `json:"source_type"`
+	Verdict     string `json:"verdict,omitempty"`
+	RuntimeMS   int    `json:"runtime_ms"`
+	MemoryKB    int    `json:"memory_kb"`
+	PassedCount int    `json:"passed_count"`
+	TotalCount  int    `json:"total_count"`
+}
+
+type ExperimentRunTraceOutput struct {
+	ExperimentRunID uint                             `json:"experiment_run_id"`
+	ExperimentID    uint                             `json:"experiment_id"`
+	ProblemID       uint                             `json:"problem_id"`
+	AISolveRunID    *uint                            `json:"ai_solve_run_id,omitempty"`
+	SubmissionID    *uint                            `json:"submission_id,omitempty"`
+	AttemptNo       int                              `json:"attempt_no"`
+	Verdict         string                           `json:"verdict,omitempty"`
+	Status          string                           `json:"status"`
+	ErrorMessage    string                           `json:"error_message,omitempty"`
+	Timeline        []ExperimentRunTraceEventOutput  `json:"timeline"`
+	AISolveRun      *ExperimentTraceAISolveRunOutput `json:"ai_solve_run,omitempty"`
+	Submission      *ExperimentTraceSubmissionOutput `json:"submission,omitempty"`
+}
+
 type ExperimentService struct {
 	experiments  repository.ExperimentRepository
 	aiSolver     AISolver
@@ -209,6 +273,37 @@ func (s *ExperimentService) Get(ctx context.Context, experimentID uint) (*Experi
 	return toExperimentOutput(experiment), nil
 }
 
+func (s *ExperimentService) List(ctx context.Context, input ExperimentListInput) (*ExperimentListOutput, error) {
+	experiments, total, err := s.experiments.List(ctx, repository.ExperimentListQuery{
+		Page:     input.Page,
+		PageSize: input.PageSize,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list experiments: %w", err)
+	}
+
+	items := make([]ExperimentOutput, 0, len(experiments))
+	for _, experiment := range experiments {
+		items = append(items, *toExperimentOutput(&experiment))
+	}
+
+	return &ExperimentListOutput{
+		Items:      items,
+		Page:       input.Page,
+		PageSize:   input.PageSize,
+		Total:      total,
+		TotalPages: totalPages(total, input.PageSize),
+	}, nil
+}
+
+func (s *ExperimentService) GetRunTrace(ctx context.Context, runID uint) (*ExperimentRunTraceOutput, error) {
+	run, err := s.experiments.GetRunTrace(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	return toExperimentRunTraceOutput(run), nil
+}
+
 func toExperimentOutput(experiment *model.Experiment) *ExperimentOutput {
 	output := &ExperimentOutput{
 		ID:            experiment.ID,
@@ -252,6 +347,64 @@ func toExperimentOutput(experiment *model.Experiment) *ExperimentOutput {
 			item.ToolCallCount = run.AISolveRun.ToolCallCount
 		}
 		output.Runs = append(output.Runs, item)
+	}
+	return output
+}
+
+func toExperimentRunTraceOutput(run *model.ExperimentRun) *ExperimentRunTraceOutput {
+	output := &ExperimentRunTraceOutput{
+		ExperimentRunID: run.ID,
+		ExperimentID:    run.ExperimentID,
+		ProblemID:       run.ProblemID,
+		AISolveRunID:    run.AISolveRunID,
+		SubmissionID:    run.SubmissionID,
+		AttemptNo:       run.AttemptNo,
+		Verdict:         run.FinalVerdict,
+		Status:          run.Status,
+		ErrorMessage:    run.ErrorMessage,
+		Timeline:        make([]ExperimentRunTraceEventOutput, 0, len(run.TraceEvents)),
+	}
+	for _, event := range run.TraceEvents {
+		output.Timeline = append(output.Timeline, ExperimentRunTraceEventOutput{
+			ID:         event.ID,
+			SequenceNo: event.SequenceNo,
+			StepType:   event.StepType,
+			Content:    event.Content,
+			Metadata:   event.Metadata,
+			CreatedAt:  event.CreatedAt,
+		})
+	}
+	if run.AISolveRun != nil {
+		output.AISolveRun = &ExperimentTraceAISolveRunOutput{
+			ID:             run.AISolveRun.ID,
+			Status:         run.AISolveRun.Status,
+			Verdict:        run.AISolveRun.Verdict,
+			AttemptCount:   run.AISolveRun.AttemptCount,
+			FailureType:    run.AISolveRun.FailureType,
+			StrategyPath:   run.AISolveRun.StrategyPath,
+			ToolingConfig:  run.AISolveRun.ToolingConfig,
+			ToolCallCount:  run.AISolveRun.ToolCallCount,
+			TokenInput:     run.AISolveRun.TokenInput,
+			TokenOutput:    run.AISolveRun.TokenOutput,
+			LLMLatencyMS:   run.AISolveRun.LLMLatencyMS,
+			TotalLatencyMS: run.AISolveRun.TotalLatencyMS,
+		}
+	}
+	if run.Submission != nil {
+		submission := &ExperimentTraceSubmissionOutput{
+			ID:         run.Submission.ID,
+			ProblemID:  run.Submission.ProblemID,
+			Language:   run.Submission.Language,
+			SourceType: run.Submission.SourceType,
+		}
+		if run.Submission.JudgeResult != nil {
+			submission.Verdict = run.Submission.JudgeResult.Verdict
+			submission.RuntimeMS = run.Submission.JudgeResult.RuntimeMS
+			submission.MemoryKB = run.Submission.JudgeResult.MemoryKB
+			submission.PassedCount = run.Submission.JudgeResult.PassedCount
+			submission.TotalCount = run.Submission.JudgeResult.TotalCount
+		}
+		output.Submission = submission
 	}
 	return output
 }

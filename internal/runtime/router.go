@@ -50,12 +50,15 @@ func NewRouter(
 		router.GET("/api/v1/meta/experiment-options", metaHandler.ExperimentOptions)
 	}
 	if experimentHandler != nil {
+		router.GET("/api/v1/experiment-runs/:id/trace", experimentHandler.GetRunTrace)
 		router.POST("/api/v1/experiments/compare", experimentHandler.Compare)
 		router.GET("/api/v1/experiments/compare", experimentHandler.ListCompare)
 		router.GET("/api/v1/experiments/compare/:id", experimentHandler.GetCompare)
 		router.POST("/api/v1/experiments/repeat", experimentHandler.Repeat)
+		router.GET("/api/v1/experiments/repeat", experimentHandler.ListRepeat)
 		router.GET("/api/v1/experiments/repeat/:id", experimentHandler.GetRepeat)
 		router.POST("/api/v1/experiments/run", experimentHandler.Run)
+		router.GET("/api/v1/experiments", experimentHandler.List)
 		router.GET("/api/v1/experiments/:id", experimentHandler.Get)
 	}
 

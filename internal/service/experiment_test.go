@@ -14,6 +14,8 @@ import (
 
 type fakeExperimentRepository struct {
 	experiment *model.Experiment
+	list       []model.Experiment
+	runTrace   *model.ExperimentRun
 	runs       []*model.ExperimentRun
 	updates    []*model.Experiment
 	nextID     uint
@@ -62,6 +64,13 @@ func (r *fakeExperimentRepository) CreateRun(_ context.Context, run *model.Exper
 	return nil
 }
 
+func (r *fakeExperimentRepository) List(_ context.Context, query repository.ExperimentListQuery) ([]model.Experiment, int64, error) {
+	if r.err != nil {
+		return nil, 0, r.err
+	}
+	return r.list, int64(len(r.list)), nil
+}
+
 func (r *fakeExperimentRepository) GetByIDWithRuns(_ context.Context, experimentID uint) (*model.Experiment, error) {
 	if r.err != nil {
 		return nil, r.err
@@ -70,6 +79,16 @@ func (r *fakeExperimentRepository) GetByIDWithRuns(_ context.Context, experiment
 		return nil, repository.ErrExperimentNotFound
 	}
 	return r.getByID, nil
+}
+
+func (r *fakeExperimentRepository) GetRunTrace(_ context.Context, runID uint) (*model.ExperimentRun, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.runTrace == nil || r.runTrace.ID != runID {
+		return nil, repository.ErrExperimentRunNotFound
+	}
+	return r.runTrace, nil
 }
 
 type fakeBatchAISolver struct {

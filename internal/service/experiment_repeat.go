@@ -98,6 +98,19 @@ type ExperimentRepeatOutput struct {
 	UpdatedAt                  time.Time                         `json:"updated_at"`
 }
 
+type ExperimentRepeatListInput struct {
+	Page     int
+	PageSize int
+}
+
+type ExperimentRepeatListOutput struct {
+	Items      []ExperimentRepeatOutput `json:"items"`
+	Page       int                      `json:"page"`
+	PageSize   int                      `json:"page_size"`
+	Total      int64                    `json:"total"`
+	TotalPages int                      `json:"total_pages"`
+}
+
 type ExperimentRepeatService struct {
 	repeats      repository.ExperimentRepeatRepository
 	experiments  ExperimentRunner
@@ -204,6 +217,37 @@ func (s *ExperimentRepeatService) Get(ctx context.Context, repeatID uint) (*Expe
 	}
 
 	return buildExperimentRepeatOutput(repeat, problemIDs, experimentIDs, rounds), nil
+}
+
+func (s *ExperimentRepeatService) List(ctx context.Context, input ExperimentRepeatListInput) (*ExperimentRepeatListOutput, error) {
+	repeats, total, err := s.repeats.List(ctx, repository.ExperimentRepeatListQuery{
+		Page:     input.Page,
+		PageSize: input.PageSize,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list experiment repeats: %w", err)
+	}
+
+	items := make([]ExperimentRepeatOutput, 0, len(repeats))
+	for _, repeat := range repeats {
+		problemIDs, err := decodeUintSlice(repeat.ProblemIDs)
+		if err != nil {
+			return nil, fmt.Errorf("decode repeat problem ids: %w", err)
+		}
+		experimentIDs, err := decodeUintSlice(repeat.ExperimentIDs)
+		if err != nil {
+			return nil, fmt.Errorf("decode repeat experiment ids: %w", err)
+		}
+		items = append(items, *buildExperimentRepeatOutput(&repeat, problemIDs, experimentIDs, nil))
+	}
+
+	return &ExperimentRepeatListOutput{
+		Items:      items,
+		Page:       input.Page,
+		PageSize:   input.PageSize,
+		Total:      total,
+		TotalPages: totalPages(total, input.PageSize),
+	}, nil
 }
 
 func buildExperimentRepeatOutput(

@@ -16,6 +16,7 @@ type fakeExperimentRepeatRepository struct {
 	created *model.ExperimentRepeat
 	updated *model.ExperimentRepeat
 	getByID *model.ExperimentRepeat
+	list    []model.ExperimentRepeat
 	nextID  uint
 	err     error
 }
@@ -44,6 +45,13 @@ func (r *fakeExperimentRepeatRepository) Update(_ context.Context, repeat *model
 	r.updated = &copied
 	r.getByID = &copied
 	return nil
+}
+
+func (r *fakeExperimentRepeatRepository) List(_ context.Context, query repository.ExperimentRepeatListQuery) ([]model.ExperimentRepeat, int64, error) {
+	if r.err != nil {
+		return nil, 0, r.err
+	}
+	return r.list, int64(len(r.list)), nil
 }
 
 func (r *fakeExperimentRepeatRepository) GetByID(_ context.Context, repeatID uint) (*model.ExperimentRepeat, error) {

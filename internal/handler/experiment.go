@@ -131,6 +131,40 @@ func (h *ExperimentHandler) ListCompare(c *gin.Context) {
 	})
 }
 
+func (h *ExperimentHandler) List(c *gin.Context) {
+	page, ok := parsePositiveIntQuery(c, "page", 1)
+	if !ok {
+		return
+	}
+	pageSize, ok := parsePositiveIntQuery(c, "page_size", 20)
+	if !ok {
+		return
+	}
+
+	output, err := h.service.List(c.Request.Context(), service.ExperimentListInput{
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	items := make([]dto.ExperimentResponse, 0, len(output.Items))
+	for _, item := range output.Items {
+		item := item
+		items = append(items, toExperimentResponse(&item))
+	}
+
+	c.JSON(http.StatusOK, dto.ExperimentListResponse{
+		Items:      items,
+		Page:       output.Page,
+		PageSize:   output.PageSize,
+		Total:      output.Total,
+		TotalPages: output.TotalPages,
+	})
+}
+
 func (h *ExperimentHandler) Repeat(c *gin.Context) {
 	var req dto.RepeatExperimentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -161,6 +195,40 @@ func (h *ExperimentHandler) Repeat(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, toExperimentRepeatResponse(output))
+}
+
+func (h *ExperimentHandler) ListRepeat(c *gin.Context) {
+	page, ok := parsePositiveIntQuery(c, "page", 1)
+	if !ok {
+		return
+	}
+	pageSize, ok := parsePositiveIntQuery(c, "page_size", 20)
+	if !ok {
+		return
+	}
+
+	output, err := h.repeatService.List(c.Request.Context(), service.ExperimentRepeatListInput{
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	items := make([]dto.ExperimentRepeatResponse, 0, len(output.Items))
+	for _, item := range output.Items {
+		item := item
+		items = append(items, toExperimentRepeatResponse(&item))
+	}
+
+	c.JSON(http.StatusOK, dto.ExperimentRepeatListResponse{
+		Items:      items,
+		Page:       output.Page,
+		PageSize:   output.PageSize,
+		Total:      output.Total,
+		TotalPages: output.TotalPages,
+	})
 }
 
 func (h *ExperimentHandler) Get(c *gin.Context) {
@@ -221,6 +289,26 @@ func (h *ExperimentHandler) GetRepeat(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, toExperimentRepeatResponse(output))
+}
+
+func (h *ExperimentHandler) GetRunTrace(c *gin.Context) {
+	runID, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+
+	output, err := h.service.GetRunTrace(c.Request.Context(), runID)
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrExperimentRunNotFound):
+			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: err.Error()})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, toExperimentRunTraceResponse(output))
 }
 
 func toExperimentResponse(output *service.ExperimentOutput) dto.ExperimentResponse {
@@ -409,5 +497,67 @@ func toExperimentRepeatResponse(output *service.ExperimentRepeatOutput) dto.Expe
 		MostUnstableProblems:       unstable,
 		CreatedAt:                  output.CreatedAt,
 		UpdatedAt:                  output.UpdatedAt,
+	}
+}
+
+func toExperimentRunTraceResponse(output *service.ExperimentRunTraceOutput) dto.ExperimentRunTraceResponse {
+	timeline := make([]dto.ExperimentRunTraceEventResponse, 0, len(output.Timeline))
+	for _, event := range output.Timeline {
+		timeline = append(timeline, dto.ExperimentRunTraceEventResponse{
+			ID:         event.ID,
+			SequenceNo: event.SequenceNo,
+			StepType:   event.StepType,
+			Content:    event.Content,
+			Metadata:   event.Metadata,
+			CreatedAt:  event.CreatedAt,
+		})
+	}
+
+	var aiSolveRun *dto.ExperimentTraceAISolveRunResponse
+	if output.AISolveRun != nil {
+		aiSolveRun = &dto.ExperimentTraceAISolveRunResponse{
+			ID:             output.AISolveRun.ID,
+			Status:         output.AISolveRun.Status,
+			Verdict:        output.AISolveRun.Verdict,
+			AttemptCount:   output.AISolveRun.AttemptCount,
+			FailureType:    output.AISolveRun.FailureType,
+			StrategyPath:   output.AISolveRun.StrategyPath,
+			ToolingConfig:  output.AISolveRun.ToolingConfig,
+			ToolCallCount:  output.AISolveRun.ToolCallCount,
+			TokenInput:     output.AISolveRun.TokenInput,
+			TokenOutput:    output.AISolveRun.TokenOutput,
+			LLMLatencyMS:   output.AISolveRun.LLMLatencyMS,
+			TotalLatencyMS: output.AISolveRun.TotalLatencyMS,
+		}
+	}
+
+	var submission *dto.ExperimentTraceSubmissionResponse
+	if output.Submission != nil {
+		submission = &dto.ExperimentTraceSubmissionResponse{
+			ID:          output.Submission.ID,
+			ProblemID:   output.Submission.ProblemID,
+			Language:    output.Submission.Language,
+			SourceType:  output.Submission.SourceType,
+			Verdict:     output.Submission.Verdict,
+			RuntimeMS:   output.Submission.RuntimeMS,
+			MemoryKB:    output.Submission.MemoryKB,
+			PassedCount: output.Submission.PassedCount,
+			TotalCount:  output.Submission.TotalCount,
+		}
+	}
+
+	return dto.ExperimentRunTraceResponse{
+		ExperimentRunID: output.ExperimentRunID,
+		ExperimentID:    output.ExperimentID,
+		ProblemID:       output.ProblemID,
+		AISolveRunID:    output.AISolveRunID,
+		SubmissionID:    output.SubmissionID,
+		AttemptNo:       output.AttemptNo,
+		Verdict:         output.Verdict,
+		Status:          output.Status,
+		ErrorMessage:    output.ErrorMessage,
+		Timeline:        timeline,
+		AISolveRun:      aiSolveRun,
+		Submission:      submission,
 	}
 }
