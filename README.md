@@ -270,6 +270,31 @@ curl --noproxy '*' -sS http://127.0.0.1:8080/health
 docker pull gcc:13
 ```
 
+## 前端控制台
+
+前端控制台位于 `web/`，使用 React、TypeScript、Vite、React Router 和 TanStack Query。
+
+安装依赖：
+
+```bash
+cd web
+npm install
+```
+
+启动开发服务：
+
+```bash
+cd web
+npm run dev
+```
+
+构建：
+
+```bash
+cd web
+npm run build
+```
+
 ## LLM Provider 切换
 
 当前默认：
