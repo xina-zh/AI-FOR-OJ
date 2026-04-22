@@ -151,12 +151,22 @@ h1 {
   gap: 12px;
 }
 
+.metric-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .metric-tile {
   min-height: 108px;
   border: 1px solid #d6dde3;
   border-radius: 6px;
   background: #ffffff;
   padding: 18px;
+}
+
+.metric-tile.compact {
+  min-height: 98px;
 }
 
 .metric-tile span,
@@ -174,6 +184,132 @@ h1 {
   color: #172026;
   font-size: 24px;
   letter-spacing: 0;
+}
+
+.metric-tile strong small {
+  margin-left: 4px;
+  color: #6b7986;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.table-frame {
+  overflow: auto;
+  border: 1px solid #d6dde3;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.data-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+  border-bottom: 1px solid #e5ebef;
+  padding: 11px 12px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.data-table th {
+  color: #5b6a76;
+  font-size: 12px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.data-table td {
+  color: #23313a;
+  font-size: 14px;
+}
+
+.align-right {
+  text-align: right;
+}
+
+.empty-cell {
+  color: #71808d;
+  text-align: center;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.status-badge.positive {
+  background: #dceee5;
+  color: #17623a;
+}
+
+.status-badge.negative {
+  background: #f4dddd;
+  color: #8f2525;
+}
+
+.status-badge.pending {
+  background: #f0e8cf;
+  color: #785c14;
+}
+
+.status-badge.neutral {
+  background: #e8edf1;
+  color: #42515d;
+}
+
+.variable-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.variable-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.variable-form label span {
+  color: #5b6a76;
+  font-size: 12px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.variable-form select,
+.variable-form textarea {
+  width: 100%;
+  border: 1px solid #c8d2da;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #172026;
+}
+
+.variable-form select {
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.variable-form textarea {
+  min-height: 112px;
+  resize: vertical;
+  padding: 10px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+}
+
+.tooling-field {
+  grid-column: 1 / -1;
 }
 
 @media (max-width: 780px) {
@@ -195,7 +331,9 @@ h1 {
     padding: 24px 16px;
   }
 
-  .metric-grid {
+  .metric-grid,
+  .metric-strip,
+  .variable-form {
     grid-template-columns: 1fr;
   }
 }
