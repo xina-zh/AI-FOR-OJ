@@ -1,51 +1,37 @@
-import { Route, Routes, useParams } from 'react-router-dom';
+import { Route, Routes } from 'react-router-dom';
 
 import { Layout } from './components/Layout';
-import { MetricStrip } from './components/MetricStrip';
-
-function RoutePanel({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <section className="route-panel" aria-labelledby="page-title">
-      <div>
-        <p className="section-label">{subtitle}</p>
-        <h1 id="page-title">{title}</h1>
-      </div>
-      <MetricStrip
-        items={[
-          { label: 'Status', value: 'Ready' },
-          { label: 'Scope', value: 'Console' },
-          { label: 'Mode', value: 'Local' },
-        ]}
-      />
-    </section>
-  );
-}
-
-function DetailPanel({ kind }: { kind: string }) {
-  const { id } = useParams();
-  return <RoutePanel title={`${kind} ${id ?? ''}`.trim()} subtitle="Detail" />;
-}
-
-function TracePanel() {
-  const { id } = useParams();
-  return <RoutePanel title={`Experiment Run ${id ?? ''}`.trim()} subtitle="Trace" />;
-}
+import { AnalyticsPage } from './features/analytics/AnalyticsPage';
+import { CompareDetailPage } from './features/compare/CompareDetailPage';
+import { ComparePage } from './features/compare/ComparePage';
+import { DashboardPage } from './features/dashboard/DashboardPage';
+import { ExperimentDetailPage } from './features/experiments/ExperimentDetailPage';
+import { ExperimentsPage } from './features/experiments/ExperimentsPage';
+import { ProblemDetailPage } from './features/problems/ProblemDetailPage';
+import { ProblemsPage } from './features/problems/ProblemsPage';
+import { RepeatDetailPage } from './features/repeat/RepeatDetailPage';
+import { RepeatPage } from './features/repeat/RepeatPage';
+import { SolvePage } from './features/solve/SolvePage';
+import { SubmissionsPage } from './features/submissions/SubmissionsPage';
+import { TracePage } from './features/trace/TracePage';
 
 export function App() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<RoutePanel title="Experiment Dashboard" subtitle="Overview" />} />
-        <Route path="/problems" element={<RoutePanel title="Problems" subtitle="Library" />} />
-        <Route path="/solve" element={<RoutePanel title="Single Solve" subtitle="AI Solve" />} />
-        <Route path="/experiments" element={<RoutePanel title="Experiments" subtitle="Batch" />} />
-        <Route path="/experiments/:id" element={<DetailPanel kind="Experiment" />} />
-        <Route path="/compare" element={<RoutePanel title="Compare" subtitle="Analysis" />} />
-        <Route path="/compare/:id" element={<DetailPanel kind="Compare" />} />
-        <Route path="/repeat" element={<RoutePanel title="Repeat" subtitle="Stability" />} />
-        <Route path="/repeat/:id" element={<DetailPanel kind="Repeat" />} />
-        <Route path="/submissions" element={<RoutePanel title="Submissions" subtitle="Judge" />} />
-        <Route path="/trace/experiment-runs/:id" element={<TracePanel />} />
+        <Route path="/" element={<DashboardPage />} />
+        <Route path="/problems" element={<ProblemsPage />} />
+        <Route path="/problems/:id" element={<ProblemDetailPage />} />
+        <Route path="/solve" element={<SolvePage />} />
+        <Route path="/experiments" element={<ExperimentsPage />} />
+        <Route path="/experiments/:id" element={<ExperimentDetailPage />} />
+        <Route path="/compare" element={<ComparePage />} />
+        <Route path="/compare/:id" element={<CompareDetailPage />} />
+        <Route path="/repeat" element={<RepeatPage />} />
+        <Route path="/repeat/:id" element={<RepeatDetailPage />} />
+        <Route path="/submissions" element={<SubmissionsPage />} />
+        <Route path="/trace/experiment-runs/:id" element={<TracePage />} />
+        <Route path="/analytics" element={<AnalyticsPage />} />
       </Routes>
     </Layout>
   );

@@ -30,11 +30,42 @@ export type ExperimentOptions = {
 export type Problem = {
   id: ID;
   title: string;
-  statement: string;
+  description: string;
+  input_spec: string;
+  output_spec: string;
+  samples?: string;
   time_limit_ms: number;
   memory_limit_mb: number;
-  created_at: string;
+  difficulty: string;
+  tags?: string;
+  created_at?: string;
   updated_at?: string;
+};
+
+export type CreateProblemRequest = {
+  title: string;
+  description: string;
+  input_spec: string;
+  output_spec: string;
+  samples: string;
+  time_limit_ms: number;
+  memory_limit_mb: number;
+  difficulty: string;
+  tags: string;
+};
+
+export type TestCase = {
+  id: ID;
+  problem_id: ID;
+  input: string;
+  expected_output: string;
+  is_sample: boolean;
+};
+
+export type CreateTestCaseRequest = {
+  input: string;
+  expected_output: string;
+  is_sample: boolean;
 };
 
 export type Submission = {
@@ -73,6 +104,9 @@ export type AISolveRun = {
   model: string;
   prompt_name: string;
   agent_name: string;
+  prompt_preview?: string;
+  raw_response?: string;
+  extracted_code?: string;
   tooling_config: string;
   tool_call_count: number;
   submission_id?: ID;
@@ -89,6 +123,14 @@ export type AISolveRun = {
   attempts?: AISolveAttempt[];
   created_at: string;
   updated_at?: string;
+};
+
+export type AISolveRequest = {
+  problem_id: ID;
+  model: string;
+  prompt_name: string;
+  agent_name: string;
+  tooling_config: string;
 };
 
 export type VerdictDistribution = {
@@ -157,16 +199,82 @@ export type ExperimentCompare = {
   compare_dimension: string;
   baseline_value: string;
   candidate_value: string;
+  baseline_prompt_name: string;
+  candidate_prompt_name: string;
+  baseline_agent_name: string;
+  candidate_agent_name: string;
   baseline_tooling_config: string;
   candidate_tooling_config: string;
   baseline_experiment_id?: ID;
   candidate_experiment_id?: ID;
   baseline_summary?: Experiment;
   candidate_summary?: Experiment;
+  baseline_verdict_distribution?: VerdictDistribution;
+  candidate_verdict_distribution?: VerdictDistribution;
+  delta_verdict_distribution?: VerdictDistribution;
+  cost_comparison?: ExperimentCompareCostComparison;
+  improved_count?: number;
+  regressed_count?: number;
+  changed_non_ac_count?: number;
+  problem_summaries?: ExperimentCompareProblemSummary[];
+  highlighted_problems?: ExperimentCompareProblemSummary[];
+  delta_ac_count?: number;
+  delta_failed_count?: number;
   status: string;
   error_message?: string;
   created_at: string;
   updated_at: string;
+};
+
+export type ExperimentCompareCostComparison = {
+  baseline_total_tokens: number;
+  baseline_total_latency_ms: number;
+  candidate_total_tokens: number;
+  candidate_total_latency_ms: number;
+  delta_total_tokens: number;
+  delta_total_latency_ms: number;
+};
+
+export type ExperimentCompareProblemSummary = {
+  problem_id: ID;
+  baseline_verdict?: string;
+  candidate_verdict?: string;
+  changed: boolean;
+  change_type: string;
+  baseline_submission_id?: ID;
+  candidate_submission_id?: ID;
+};
+
+export type CompareExperimentRequest = {
+  name: string;
+  problem_ids: ID[];
+  baseline_model: string;
+  candidate_model: string;
+  baseline_prompt_name: string;
+  candidate_prompt_name: string;
+  baseline_agent_name: string;
+  candidate_agent_name: string;
+  baseline_tooling_config: string;
+  candidate_tooling_config: string;
+};
+
+export type ExperimentRepeatRoundSummary = {
+  round_no: number;
+  experiment_id: ID;
+  ac_count: number;
+  failed_count: number;
+  verdict_distribution: VerdictDistribution;
+  status: string;
+};
+
+export type ExperimentRepeatProblemSummary = {
+  problem_id: ID;
+  total_rounds: number;
+  ac_count: number;
+  failed_count: number;
+  ac_rate: number;
+  latest_verdict?: string;
+  verdict_distribution: VerdictDistribution;
 };
 
 export type ExperimentRepeat = {
@@ -187,8 +295,21 @@ export type ExperimentRepeat = {
   cost_summary: CostSummary;
   status: string;
   error_message?: string;
+  round_summaries?: ExperimentRepeatRoundSummary[];
+  problem_summaries?: ExperimentRepeatProblemSummary[];
+  most_unstable_problems?: ExperimentRepeatProblemSummary[];
   created_at: string;
   updated_at: string;
+};
+
+export type RepeatExperimentRequest = {
+  name: string;
+  problem_ids: ID[];
+  model: string;
+  prompt_name: string;
+  agent_name: string;
+  tooling_config: string;
+  repeat_count: number;
 };
 
 export type TraceEvent = {

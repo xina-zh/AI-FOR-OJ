@@ -15,6 +15,7 @@ export const defaultNavItems: NavItem[] = [
   { label: 'Compare', path: '/compare', section: 'Analysis' },
   { label: 'Repeat', path: '/repeat', section: 'Stability' },
   { label: 'Submissions', path: '/submissions', section: 'Judge' },
+  { label: 'Analytics', path: '/analytics', section: 'Metrics' },
 ];
 
 export function Layout({
