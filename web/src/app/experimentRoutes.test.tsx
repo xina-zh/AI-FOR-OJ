@@ -215,6 +215,7 @@ describe('experiment routes', () => {
             model: 'mock-cpp17',
             prompt_name: 'default',
             agent_name: 'direct_codegen',
+            tooling_config: '',
           }),
         }),
       );

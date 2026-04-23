@@ -19,6 +19,7 @@ export function ExperimentRunForm({ isSubmitting, onSubmit }: ExperimentRunFormP
     model: '',
     prompt_name: '',
     agent_name: '',
+    tooling_config: '',
   });
 
   return (
@@ -34,6 +35,7 @@ export function ExperimentRunForm({ isSubmitting, onSubmit }: ExperimentRunFormP
             model: variables.model,
             prompt_name: variables.prompt_name,
             agent_name: variables.agent_name,
+            tooling_config: variables.tooling_config,
           });
         }}
       >

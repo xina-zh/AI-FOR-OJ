@@ -69,6 +69,7 @@ async function mockApi(page: Page) {
           { name: 'direct_codegen', label: 'direct_codegen' },
           { name: 'direct_codegen_repair', label: 'direct_codegen_repair' },
         ],
+        tooling_options: [{ name: 'sample_judge', label: 'sample_judge' }],
       },
     });
   });
@@ -104,6 +105,9 @@ async function mockApi(page: Page) {
         extracted_code: 'int main() { return 0; }',
         submission_id: 99,
         verdict: 'AC',
+        attempt_count: 1,
+        tooling_config: '',
+        tool_call_count: 0,
         token_input: 11,
         token_output: 22,
         llm_latency_ms: 33,
@@ -118,12 +122,11 @@ async function mockApi(page: Page) {
     await route.fulfill({
       json: {
         experiment_run_id: 7,
-        events: [
-          { sequence_no: 1, step_type: 'prompt', title: 'Prompt', content: 'Solve A+B', created_at: now },
+        timeline: [
+          { sequence_no: 1, step_type: 'prompt', content: 'Solve A+B', created_at: now },
           {
             sequence_no: 2,
             step_type: 'extracted_code',
-            title: 'Extracted Code',
             content: '#include <bits/stdc++.h>\nint main() { return 0; }',
             created_at: now,
           },
@@ -168,6 +171,7 @@ const experiment = {
   model: 'mock-cpp17',
   prompt_name: 'default',
   agent_name: 'direct_codegen',
+  tooling_config: '',
   status: 'completed',
   total_count: 1,
   success_count: 1,
@@ -178,7 +182,19 @@ const experiment = {
   created_at: now,
   updated_at: now,
   runs: [
-    { id: 7, problem_id: 1, ai_solve_run_id: 88, submission_id: 99, attempt_no: 1, verdict: 'AC', status: 'completed', created_at: now },
+    {
+      id: 7,
+      problem_id: 1,
+      ai_solve_run_id: 88,
+      submission_id: 99,
+      attempt_no: 1,
+      verdict: 'AC',
+      status: 'completed',
+      attempt_count: 1,
+      tooling_config: '',
+      tool_call_count: 0,
+      created_at: now,
+    },
   ],
 };
 
@@ -192,6 +208,8 @@ const compare = {
   candidate_prompt_name: 'default',
   baseline_agent_name: 'direct_codegen',
   candidate_agent_name: 'direct_codegen_repair',
+  baseline_tooling_config: '',
+  candidate_tooling_config: '',
   problem_ids: [1],
   baseline_experiment_id: 5,
   candidate_experiment_id: 6,
@@ -228,6 +246,7 @@ const repeat = {
   model: 'mock-cpp17',
   prompt_name: 'default',
   agent_name: 'direct_codegen',
+  tooling_config: '',
   problem_ids: [1],
   repeat_count: 2,
   experiment_ids: [5, 6],

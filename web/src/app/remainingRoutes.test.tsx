@@ -153,9 +153,9 @@ describe('remaining routes', () => {
     stubFetch({
       '/api/v1/experiment-runs/99/trace': {
         experiment_run_id: 99,
-        events: [
-          { sequence_no: 1, step_type: 'prompt', title: 'Prompt', content: 'solve echo', created_at: '2026-04-20T10:00:00Z' },
-          { sequence_no: 2, step_type: 'extracted_code', title: 'Extracted Code', content: 'int main(){}', created_at: '2026-04-20T10:00:01Z' },
+        timeline: [
+          { sequence_no: 1, step_type: 'prompt', content: 'solve echo', created_at: '2026-04-20T10:00:00Z' },
+          { sequence_no: 2, step_type: 'extracted_code', content: 'int main(){}', created_at: '2026-04-20T10:00:01Z' },
         ],
       },
     });
@@ -167,6 +167,87 @@ describe('remaining routes', () => {
     expect(await screen.findByText('Prompt')).toBeInTheDocument();
     expect(screen.getByText('solve echo')).toBeInTheDocument();
     expect(screen.getByText('int main(){}')).toBeInTheDocument();
+  });
+
+  it('renders adaptive attempt details on an AI run page', async () => {
+    stubFetch({
+      '/api/v1/ai/solve-runs/77': {
+        id: 77,
+        problem_id: 5,
+        model: 'mock-cpp17',
+        prompt_name: 'default',
+        agent_name: 'adaptive_repair_v1',
+        prompt_preview: 'solve echo',
+        raw_response: '```cpp\nint main(){}\n```',
+        extracted_code: 'int main(){}',
+        submission_id: 88,
+        verdict: 'AC',
+        status: 'completed',
+        attempt_count: 2,
+        failure_type: 'wrong_answer',
+        strategy_path: 'wa_repair',
+        tooling_config: 'sample_judge',
+        tool_call_count: 1,
+        token_input: 120,
+        token_output: 80,
+        llm_latency_ms: 500,
+        total_latency_ms: 900,
+        created_at: '2026-04-20T10:00:00Z',
+        updated_at: '2026-04-20T10:01:00Z',
+        attempts: [
+          {
+            id: 1,
+            attempt_no: 1,
+            stage: 'initial',
+            model: 'mock-cpp17',
+            verdict: 'WA',
+            failure_type: 'wrong_answer',
+            repair_reason: '',
+            strategy_path: 'initial',
+            prompt_preview: 'first prompt',
+            extracted_code: 'int main(){return 1;}',
+            judge_passed_count: 1,
+            judge_total_count: 2,
+            timed_out: false,
+            error_message: '',
+            token_input: 60,
+            token_output: 40,
+            llm_latency_ms: 240,
+            total_latency_ms: 420,
+          },
+          {
+            id: 2,
+            attempt_no: 2,
+            stage: 'repair',
+            model: 'mock-cpp17',
+            verdict: 'AC',
+            failure_type: '',
+            repair_reason: 'fix output format',
+            strategy_path: 'wa_repair',
+            prompt_preview: 'repair prompt',
+            extracted_code: 'int main(){return 0;}',
+            judge_passed_count: 2,
+            judge_total_count: 2,
+            timed_out: false,
+            error_message: '',
+            token_input: 60,
+            token_output: 40,
+            llm_latency_ms: 260,
+            total_latency_ms: 480,
+          },
+        ],
+      },
+    });
+
+    await router.navigate('/ai-runs/77');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'AI Run #77' })).toBeInTheDocument();
+    expect(await screen.findByText('Attempts')).toBeInTheDocument();
+    expect(screen.getByText('Attempt #1')).toBeInTheDocument();
+    expect(screen.getByText('Attempt #2')).toBeInTheDocument();
+    expect(screen.getByText('fix output format')).toBeInTheDocument();
+    expect(screen.getByText('sample_judge')).toBeInTheDocument();
   });
 
   it('renders submission list and submission detail pages', async () => {

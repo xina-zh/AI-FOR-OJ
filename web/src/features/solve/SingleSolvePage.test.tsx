@@ -65,6 +65,7 @@ describe('SingleSolvePage', () => {
 
     expect(await screen.findByText('5 · Echo')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('题目'), { target: { value: '5' } });
+    fireEvent.change(await screen.findByLabelText('Tooling'), { target: { value: 'sample_judge' } });
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '执行 Solve' })).not.toBeDisabled();
     });
@@ -80,6 +81,7 @@ describe('SingleSolvePage', () => {
             model: 'mock-cpp17',
             prompt_name: 'default',
             agent_name: 'direct_codegen',
+            tooling_config: 'sample_judge',
           }),
         }),
       );

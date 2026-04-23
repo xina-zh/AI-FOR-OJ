@@ -15,6 +15,7 @@ export function SingleSolvePage() {
     model: '',
     prompt_name: '',
     agent_name: '',
+    tooling_config: '',
   });
   const mutation = useMutation({
     mutationFn: () =>
@@ -23,6 +24,7 @@ export function SingleSolvePage() {
         model: variables.model,
         prompt_name: variables.prompt_name,
         agent_name: variables.agent_name,
+        tooling_config: variables.tooling_config,
       }),
   });
 

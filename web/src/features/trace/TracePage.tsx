@@ -27,7 +27,7 @@ export function TracePage() {
       </div>
       {isLoading ? <LoadingBlock label="加载 trace" /> : null}
       {error ? <ErrorPanel error={error} /> : null}
-      {data ? <TraceTimeline events={data.events} /> : null}
+      {data ? <TraceTimeline events={data.timeline} /> : null}
     </section>
   );
 }

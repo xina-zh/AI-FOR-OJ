@@ -20,6 +20,7 @@ export function RepeatForm({ isSubmitting, onSubmit }: RepeatFormProps) {
     model: '',
     prompt_name: '',
     agent_name: '',
+    tooling_config: '',
   });
 
   return (
@@ -35,6 +36,7 @@ export function RepeatForm({ isSubmitting, onSubmit }: RepeatFormProps) {
             model: variables.model,
             prompt_name: variables.prompt_name,
             agent_name: variables.agent_name,
+            tooling_config: variables.tooling_config,
             repeat_count: repeatCount,
           });
         }}

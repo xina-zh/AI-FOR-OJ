@@ -10,4 +10,5 @@ export const experimentOptionsFixture = {
     { name: 'direct_codegen_repair', label: 'direct_codegen_repair' },
     { name: 'analyze_then_codegen', label: 'analyze_then_codegen' },
   ],
+  tooling_options: [{ name: 'sample_judge', label: 'sample_judge' }],
 };

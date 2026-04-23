@@ -6,6 +6,7 @@ export interface SolveRequest {
   model: string;
   prompt_name: string;
   agent_name: string;
+  tooling_config: string;
 }
 
 export function solveProblem(input: SolveRequest) {

@@ -12,6 +12,7 @@ export interface RunExperimentRequest {
   model: string;
   prompt_name: string;
   agent_name: string;
+  tooling_config: string;
 }
 
 export interface CompareExperimentRequest {
@@ -23,6 +24,8 @@ export interface CompareExperimentRequest {
   candidate_prompt_name: string;
   baseline_agent_name: string;
   candidate_agent_name: string;
+  baseline_tooling_config: string;
+  candidate_tooling_config: string;
 }
 
 export interface RepeatExperimentRequest {
@@ -31,6 +34,7 @@ export interface RepeatExperimentRequest {
   model: string;
   prompt_name: string;
   agent_name: string;
+  tooling_config: string;
   repeat_count: number;
 }
 

@@ -10,6 +10,7 @@ export interface ExperimentVariables {
   model: string;
   prompt_name: string;
   agent_name: string;
+  tooling_config: string;
 }
 
 interface ExperimentVariableFormProps {
@@ -29,8 +30,14 @@ export function ExperimentVariableForm({ value, onChange }: ExperimentVariableFo
       model: value.model || data.default_model,
       prompt_name: value.prompt_name || data.prompts[0]?.name || 'default',
       agent_name: value.agent_name || data.agents[0]?.name || 'direct_codegen',
+      tooling_config: value.tooling_config || '',
     };
-    if (next.model !== value.model || next.prompt_name !== value.prompt_name || next.agent_name !== value.agent_name) {
+    if (
+      next.model !== value.model ||
+      next.prompt_name !== value.prompt_name ||
+      next.agent_name !== value.agent_name ||
+      next.tooling_config !== value.tooling_config
+    ) {
       onChange(next);
     }
   }, [data, onChange, value]);
@@ -52,6 +59,16 @@ export function ExperimentVariableForm({ value, onChange }: ExperimentVariableFo
       <Field label="Agent">
         <Select value={value.agent_name || data?.agents[0]?.name || ''} onChange={(event) => onChange({ ...value, agent_name: event.target.value })}>
           {data?.agents.map((option) => (
+            <option key={option.name} value={option.name}>
+              {option.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Tooling">
+        <Select value={value.tooling_config} onChange={(event) => onChange({ ...value, tooling_config: event.target.value })}>
+          <option value="">none</option>
+          {data?.tooling_options.map((option) => (
             <option key={option.name} value={option.name}>
               {option.label}
             </option>

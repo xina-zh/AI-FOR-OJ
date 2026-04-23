@@ -17,7 +17,7 @@ describe('ExperimentVariableForm', () => {
 
     renderWithProviders(
       <ExperimentVariableForm
-        value={{ model: '', prompt_name: '', agent_name: '' }}
+        value={{ model: '', prompt_name: '', agent_name: '', tooling_config: '' }}
         onChange={() => undefined}
       />,
     );
@@ -25,5 +25,6 @@ describe('ExperimentVariableForm', () => {
     expect(await screen.findByDisplayValue('mock-cpp17')).toBeInTheDocument();
     expect(await screen.findByRole('option', { name: 'strict_cpp17' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'direct_codegen_repair' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'sample_judge' })).toBeInTheDocument();
   });
 });

@@ -13,6 +13,8 @@ export interface CompareVariables {
   candidate_prompt_name: string;
   baseline_agent_name: string;
   candidate_agent_name: string;
+  baseline_tooling_config: string;
+  candidate_tooling_config: string;
 }
 
 interface CompareVariableFormProps {
@@ -37,6 +39,8 @@ export function CompareVariableForm({ value, onChange }: CompareVariableFormProp
       candidate_prompt_name: value.candidate_prompt_name || defaultPrompt,
       baseline_agent_name: value.baseline_agent_name || defaultAgent,
       candidate_agent_name: value.candidate_agent_name || defaultAgent,
+      baseline_tooling_config: value.baseline_tooling_config || '',
+      candidate_tooling_config: value.candidate_tooling_config || '',
     };
     if (JSON.stringify(next) !== JSON.stringify(value)) {
       onChange(next);
@@ -68,6 +72,16 @@ export function CompareVariableForm({ value, onChange }: CompareVariableFormProp
             ))}
           </Select>
         </Field>
+        <Field label="Baseline Tooling">
+          <Select value={value.baseline_tooling_config} onChange={(event) => onChange({ ...value, baseline_tooling_config: event.target.value })}>
+            <option value="">none</option>
+            {data?.tooling_options.map((option) => (
+              <option key={option.name} value={option.name}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
       </div>
       <div className="stack">
         <h2>Candidate</h2>
@@ -86,6 +100,16 @@ export function CompareVariableForm({ value, onChange }: CompareVariableFormProp
         <Field label="Candidate Agent">
           <Select value={value.candidate_agent_name || data?.agents[0]?.name || ''} onChange={(event) => onChange({ ...value, candidate_agent_name: event.target.value })}>
             {data?.agents.map((option) => (
+              <option key={option.name} value={option.name}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Candidate Tooling">
+          <Select value={value.candidate_tooling_config} onChange={(event) => onChange({ ...value, candidate_tooling_config: event.target.value })}>
+            <option value="">none</option>
+            {data?.tooling_options.map((option) => (
               <option key={option.name} value={option.name}>
                 {option.label}
               </option>

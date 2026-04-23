@@ -9,6 +9,7 @@ export interface ExperimentOptions {
   default_model: string;
   prompts: OptionItem[];
   agents: OptionItem[];
+  tooling_options: OptionItem[];
 }
 
 export interface HealthResponse {
@@ -72,6 +73,11 @@ export interface ExperimentRun {
   verdict?: Verdict;
   status: string;
   error_message?: string;
+  attempt_count: number;
+  failure_type?: string;
+  strategy_path?: string;
+  tooling_config: string;
+  tool_call_count: number;
   created_at: string;
 }
 
@@ -81,6 +87,7 @@ export interface Experiment {
   model: string;
   prompt_name: string;
   agent_name: string;
+  tooling_config: string;
   status: string;
   total_count: number;
   success_count: number;
@@ -113,10 +120,16 @@ export interface AISolveResponse {
   submission_id: number;
   verdict?: Verdict;
   error_message?: string;
+  attempt_count: number;
+  failure_type?: string;
+  strategy_path?: string;
+  tooling_config: string;
+  tool_call_count: number;
   token_input: number;
   token_output: number;
   llm_latency_ms: number;
   total_latency_ms: number;
+  attempts?: AISolveAttempt[];
 }
 
 export interface AISolveRun {
@@ -132,12 +145,39 @@ export interface AISolveRun {
   verdict?: Verdict;
   status: string;
   error_message?: string;
+  attempt_count: number;
+  failure_type?: string;
+  strategy_path?: string;
+  tooling_config: string;
+  tool_call_count: number;
   token_input: number;
   token_output: number;
   llm_latency_ms: number;
   total_latency_ms: number;
   created_at: string;
   updated_at: string;
+  attempts?: AISolveAttempt[];
+}
+
+export interface AISolveAttempt {
+  id: number;
+  attempt_no: number;
+  stage: string;
+  model: string;
+  verdict?: Verdict;
+  failure_type?: string;
+  repair_reason?: string;
+  strategy_path?: string;
+  prompt_preview?: string;
+  extracted_code?: string;
+  judge_passed_count: number;
+  judge_total_count: number;
+  timed_out: boolean;
+  error_message?: string;
+  token_input: number;
+  token_output: number;
+  llm_latency_ms: number;
+  total_latency_ms: number;
 }
 
 export interface CompareExperiment {
@@ -150,6 +190,8 @@ export interface CompareExperiment {
   candidate_prompt_name: string;
   baseline_agent_name: string;
   candidate_agent_name: string;
+  baseline_tooling_config: string;
+  candidate_tooling_config: string;
   problem_ids: number[];
   baseline_experiment_id: number;
   candidate_experiment_id: number;
@@ -214,6 +256,7 @@ export interface RepeatExperiment {
   model: string;
   prompt_name: string;
   agent_name: string;
+  tooling_config: string;
   problem_ids: number[];
   repeat_count: number;
   experiment_ids: number[];
@@ -320,9 +363,10 @@ export interface SubmissionTestCaseResult {
 }
 
 export interface TraceEvent {
+  id?: number;
   sequence_no: number;
   step_type: string;
-  title: string;
+  title?: string;
   content: string;
   metadata?: string;
   created_at: string;
@@ -330,5 +374,5 @@ export interface TraceEvent {
 
 export interface ExperimentRunTrace {
   experiment_run_id: number;
-  events: TraceEvent[];
+  timeline: TraceEvent[];
 }

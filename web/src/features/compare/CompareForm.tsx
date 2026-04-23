@@ -19,6 +19,8 @@ const emptyVariables: CompareVariables = {
   candidate_prompt_name: '',
   baseline_agent_name: '',
   candidate_agent_name: '',
+  baseline_tooling_config: '',
+  candidate_tooling_config: '',
 };
 
 export function CompareForm({ isSubmitting, onSubmit }: CompareFormProps) {
