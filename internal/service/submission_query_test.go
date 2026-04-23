@@ -66,18 +66,19 @@ func TestSubmissionQueryServiceGet(t *testing.T) {
 			SourceCode: "#include <bits/stdc++.h>",
 			Problem:    model.Problem{BaseModel: model.BaseModel{ID: 1}, Title: "Echo"},
 			JudgeResult: &model.JudgeResult{
-				BaseModel:    model.BaseModel{ID: 11, CreatedAt: now, UpdatedAt: now},
-				Verdict:      "WA",
-				RuntimeMS:    5,
-				MemoryKB:     0,
-				PassedCount:  1,
-				TotalCount:   2,
-				RunStdout:    "wrong\n",
-				RunStderr:    "",
-				ExitCode:     0,
-				TimedOut:     false,
-				ExecStage:    "run",
-				ErrorMessage: "wrong answer: output mismatch",
+				BaseModel:      model.BaseModel{ID: 11, CreatedAt: now, UpdatedAt: now},
+				Verdict:        "WA",
+				RuntimeMS:      5,
+				MemoryKB:       0,
+				MemoryExceeded: true,
+				PassedCount:    1,
+				TotalCount:     2,
+				RunStdout:      "wrong\n",
+				RunStderr:      "",
+				ExitCode:       0,
+				TimedOut:       false,
+				ExecStage:      "run",
+				ErrorMessage:   "wrong answer: output mismatch",
 			},
 			TestCaseResults: []model.SubmissionTestCaseResult{
 				{
@@ -91,14 +92,15 @@ func TestSubmissionQueryServiceGet(t *testing.T) {
 					ExitCode:     0,
 				},
 				{
-					CreatedModel: model.CreatedModel{ID: 22, CreatedAt: now},
-					SubmissionID: 1,
-					TestCaseID:   102,
-					CaseIndex:    2,
-					Verdict:      "WA",
-					RuntimeMS:    5,
-					Stdout:       "wrong\n",
-					ExitCode:     0,
+					CreatedModel:   model.CreatedModel{ID: 22, CreatedAt: now},
+					SubmissionID:   1,
+					TestCaseID:     102,
+					CaseIndex:      2,
+					Verdict:        "WA",
+					RuntimeMS:      5,
+					Stdout:         "wrong\n",
+					ExitCode:       0,
+					MemoryExceeded: true,
 				},
 			},
 		},
@@ -122,12 +124,20 @@ func TestSubmissionQueryServiceGet(t *testing.T) {
 		t.Fatalf("expected observability fields in detail output, got %+v", output)
 	}
 
+	if !output.MemoryExceeded || output.JudgeResult == nil || !output.JudgeResult.MemoryExceeded {
+		t.Fatalf("expected memory exceeded flag in detail output, got %+v", output)
+	}
+
 	if len(output.TestCaseResults) != 2 {
 		t.Fatalf("expected 2 testcase results, got %d", len(output.TestCaseResults))
 	}
 
 	if output.TestCaseResults[1].CaseIndex != 2 || output.TestCaseResults[1].Verdict != "WA" {
 		t.Fatalf("expected testcase-level result summary in detail output, got %+v", output.TestCaseResults[1])
+	}
+
+	if !output.TestCaseResults[1].MemoryExceeded {
+		t.Fatalf("expected testcase memory flag in detail output, got %+v", output.TestCaseResults[1])
 	}
 }
 

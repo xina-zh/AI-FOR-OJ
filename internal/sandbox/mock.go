@@ -57,10 +57,8 @@ func (m *MockSandbox) Run(_ context.Context, req RunRequest) (RunResult, error) 
 		return RunResult{
 			RuntimeMS:      1,
 			MemoryKB:       req.MemoryLimitMB * 1024,
-			Stderr:         "memory limit exceeded",
 			ExitCode:       137,
 			MemoryExceeded: true,
-			RuntimeError:   true,
 			ErrorMessage:   "memory limit exceeded",
 		}, nil
 	case strings.Contains(sourceCode, mockRuntimeErrorMarker):
