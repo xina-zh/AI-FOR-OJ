@@ -17,8 +17,8 @@ type ExperimentCompare struct {
 	CandidatePromptName    string `gorm:"column:candidate_prompt_name;type:varchar(64);not null;default:''" json:"candidate_prompt_name"`
 	BaselineAgentName      string `gorm:"column:baseline_agent_name;type:varchar(64);not null;default:''" json:"baseline_agent_name"`
 	CandidateAgentName     string `gorm:"column:candidate_agent_name;type:varchar(64);not null;default:''" json:"candidate_agent_name"`
-	BaselineToolingConfig  string `gorm:"column:baseline_tooling_config;type:longtext;not null;default:'{}'" json:"baseline_tooling_config"`
-	CandidateToolingConfig string `gorm:"column:candidate_tooling_config;type:longtext;not null;default:'{}'" json:"candidate_tooling_config"`
+	BaselineToolingConfig  string `gorm:"column:baseline_tooling_config;type:varchar(2048);not null;default:'{}'" json:"baseline_tooling_config"`
+	CandidateToolingConfig string `gorm:"column:candidate_tooling_config;type:varchar(2048);not null;default:'{}'" json:"candidate_tooling_config"`
 	ProblemIDs             string `gorm:"column:problem_ids;type:longtext;not null" json:"problem_ids"`
 	BaselineExperimentID   *uint  `gorm:"column:baseline_experiment_id;index" json:"baseline_experiment_id,omitempty"`
 	CandidateExperimentID  *uint  `gorm:"column:candidate_experiment_id;index" json:"candidate_experiment_id,omitempty"`

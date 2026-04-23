@@ -23,7 +23,7 @@ type AISolveRun struct {
 	AttemptCount   int              `gorm:"column:attempt_count;not null;default:0" json:"attempt_count"`
 	FailureType    string           `gorm:"column:failure_type;type:varchar(64);not null;default:''" json:"failure_type"`
 	StrategyPath   string           `gorm:"column:strategy_path;type:longtext" json:"strategy_path"`
-	ToolingConfig  string           `gorm:"column:tooling_config;type:longtext;not null;default:'{}'" json:"tooling_config"`
+	ToolingConfig  string           `gorm:"column:tooling_config;type:varchar(2048);not null;default:'{}'" json:"tooling_config"`
 	ToolCallCount  int              `gorm:"column:tool_call_count;not null;default:0" json:"tool_call_count"`
 	TokenInput     int64            `gorm:"column:token_input;not null;default:0" json:"token_input"`
 	TokenOutput    int64            `gorm:"column:token_output;not null;default:0" json:"token_output"`
