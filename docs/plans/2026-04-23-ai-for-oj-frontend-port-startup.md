@@ -560,12 +560,14 @@ Create:
 #!/usr/bin/env sh
 set -eu
 
-docker compose up -d --build mysql app frontend
+docker compose up -d mysql app frontend
 
 printf '%s\n' 'AI-For-OJ is starting:'
 printf '%s\n' '  Backend:  http://127.0.0.1:8080'
 printf '%s\n' '  Frontend: http://127.0.0.1:5188'
 ```
+
+Do not force `--build` in this script. Daily startup should not depend on Docker registry metadata or network availability. Run `docker compose build app` or `docker compose up -d --build` separately when the backend image must be rebuilt.
 
 Do not add browser auto-open logic in this script yet. Opening browsers from automation is brittle across Linux desktop, WSL, SSH, CI, and containerized environments. If browser auto-open is still desired after the stack behavior is stable, add it as a separate explicit task.
 
@@ -902,4 +904,3 @@ git revert <commit-that-scaffolded-frontend>
 - Use @verification-before-completion before claiming the stack works.
 - Use @systematic-debugging if port binding, Docker networking, or Vite proxy behavior fails.
 - Use @senior-frontend when expanding the shell into the full experiment console.
-
