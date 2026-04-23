@@ -2,41 +2,51 @@ package agent
 
 import (
 	"context"
-	"regexp"
 	"strings"
+	"time"
 
 	"ai-for-oj/internal/llm"
 )
 
-var (
-	cppFencePattern     = regexp.MustCompile("(?is)```(?:cpp|c\\+\\+|cc|cxx)\\s*(.*?)```")
-	genericFencePattern = regexp.MustCompile("(?is)```(?:[a-z0-9_+-]+)?\\s*(.*?)```")
-)
+type llmExecution struct {
+	PromptPreview string
+	RawResponse   string
+	TokenInput    int64
+	TokenOutput   int64
+	LLMLatencyMS  int
+	Model         string
+}
 
-func ExecutePrompt(ctx context.Context, client llm.Client, modelName, promptText string) (SolveOutput, error) {
-	resp, latencyMS, err := generateOnce(ctx, client, modelName, promptText)
-	output := SolveOutput{
-		Model:         effectiveModel(resp.Model, modelName),
+func executeLLMOnce(ctx context.Context, client llm.Client, modelName, promptText string) (llmExecution, error) {
+	startedAt := time.Now()
+	resp, err := client.Generate(ctx, llm.GenerateRequest{
+		Prompt: promptText,
+		Model:  modelName,
+	})
+
+	return llmExecution{
 		PromptPreview: promptText,
 		RawResponse:   resp.Content,
 		TokenInput:    resp.InputTokens,
 		TokenOutput:   resp.OutputTokens,
-		LLMLatencyMS:  latencyMS,
-	}
-	return output, err
+		LLMLatencyMS:  elapsedMS(startedAt),
+		Model:         effectiveModel(resp.Model, modelName),
+	}, err
 }
 
-func ExtractCPPCode(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
+func elapsedMS(start time.Time) int {
+	if start.IsZero() {
+		return 0
 	}
+	return int(time.Since(start).Milliseconds())
+}
 
-	if matches := cppFencePattern.FindStringSubmatch(raw); len(matches) >= 2 {
-		return strings.TrimSpace(matches[1])
-	}
-	if matches := genericFencePattern.FindStringSubmatch(raw); len(matches) >= 2 {
-		return strings.TrimSpace(matches[1])
+func effectiveModel(values ...string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
 	}
 	return ""
 }

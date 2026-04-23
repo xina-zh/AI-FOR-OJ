@@ -126,17 +126,33 @@ Judge Feedback:
 `, base, previousCode, feedback))
 }
 
-func BuildRepairPromptForStage(problem *model.Problem, stage, previousCode, feedback string) string {
-	switch stage {
-	case "wa_analysis_repair":
-		return BuildWARepairPrompt(problem, previousCode, feedback)
-	case "re_safety_repair":
-		return BuildRERepairPrompt(problem, previousCode, feedback)
-	case "tle_complexity_rewrite":
-		return BuildTLERepairPrompt(problem, previousCode, feedback)
-	default:
-		return BuildRepairPrompt(problem, StrictCPP17SolvePromptName, previousCode, feedback)
+func buildVerdictRepairPrompt(problem *model.Problem, promptName, templateName string, instructions []string, previousCode, feedback string) string {
+	base := BuildSolvePrompt(problem, promptName)
+	previousCode = strings.TrimSpace(previousCode)
+	feedback = strings.TrimSpace(feedback)
+
+	lines := make([]string, 0, len(instructions))
+	for i, instruction := range instructions {
+		lines = append(lines, fmt.Sprintf("%d. %s", i+1, instruction))
 	}
+
+	return strings.TrimSpace(fmt.Sprintf(`
+%s
+
+PROMPT_TEMPLATE: %s
+
+Your previous submission failed.
+Repair the solution using the verdict-specific guidance below.
+
+Repair requirements:
+%s
+
+Previous Code (cpp):
+%s
+
+Judge Feedback:
+%s
+`, base, templateName, strings.Join(lines, "\n"), previousCode, feedback))
 }
 
 func buildDefaultSolvePrompt(problem *model.Problem) string {

@@ -369,3 +369,44 @@ func TestExperimentServiceGetReturnsZeroCostSummaryWithoutValidAISolveRuns(t *te
 		t.Fatalf("expected zero-value cost summary, got %+v", output.CostSummary)
 	}
 }
+
+func TestExperimentServiceGetExposesAISolveRunSummaryFields(t *testing.T) {
+	repo := &fakeExperimentRepository{
+		getByID: &model.Experiment{
+			BaseModel:    model.BaseModel{ID: 10, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
+			Name:         "batch-4",
+			ModelName:    "mock-cpp17",
+			Status:       ExperimentStatusCompleted,
+			TotalCount:   1,
+			SuccessCount: 1,
+			Runs: []model.ExperimentRun{
+				{
+					CreatedModel: model.CreatedModel{ID: 3, CreatedAt: time.Now().UTC()},
+					ProblemID:    3,
+					AttemptNo:    1,
+					Status:       ExperimentRunStatusSuccess,
+					AISolveRunID: uintPtr(77),
+					AISolveRun: &model.AISolveRun{
+						BaseModel:    model.BaseModel{ID: 77},
+						AttemptCount: 4,
+						FailureType:  "wrong_answer",
+						StrategyPath: "initial,repair,final",
+					},
+				},
+			},
+		},
+	}
+	service := NewExperimentService(repo, &fakeBatchAISolver{}, "mock-cpp17")
+
+	output, err := service.Get(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("get experiment returned error: %v", err)
+	}
+
+	if len(output.Runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(output.Runs))
+	}
+	if output.Runs[0].AttemptCount != 4 || output.Runs[0].FailureType != "wrong_answer" || output.Runs[0].StrategyPath != "initial,repair,final" {
+		t.Fatalf("expected AISolveRun summary fields to be exposed, got %+v", output.Runs[0])
+	}
+}

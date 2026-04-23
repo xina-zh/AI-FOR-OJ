@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"time"
 
 	"ai-for-oj/internal/llm"
 	"ai-for-oj/internal/model"
@@ -23,10 +22,11 @@ const (
 var ErrUnknownSolveAgent = errors.New("unknown solve agent")
 
 type SolveInput struct {
-	Problem       *model.Problem
-	Model         string
-	PromptName    string
-	ToolingRunner *tooling.Runner
+	Problem        *model.Problem
+	Model          string
+	PromptName     string
+	JudgeSubmitter JudgeSubmitter
+	ToolingRunner  *tooling.Runner
 }
 
 type SolveOutput struct {
@@ -95,7 +95,7 @@ func ResolveSolveStrategy(name string) (SolveStrategy, error) {
 	case AnalyzeThenCodegenAgentName:
 		return analyzeThenCodegenStrategy{}, nil
 	case AdaptiveRepairV1AgentName:
-		return adaptiveRepairV1Strategy{}, nil
+		return adaptiveRepairStrategy{}, nil
 	case ToolingCodegenV1AgentName:
 		return toolingCodegenV1Strategy{}, nil
 	default:
@@ -115,32 +115,30 @@ func (directCodegenStrategy) Name() string {
 
 func (directCodegenStrategy) Execute(ctx context.Context, client llm.Client, input SolveInput) (SolveOutput, error) {
 	finalPrompt := prompt.BuildSolvePrompt(input.Problem, input.PromptName)
-	resp, latencyMS, err := generateOnce(ctx, client, input.Model, finalPrompt)
+	execution, err := executeLLMOnce(ctx, client, input.Model, finalPrompt)
 	if err != nil {
 		return SolveOutput{
 			AgentName:     DirectCodegenAgentName,
 			Model:         input.Model,
-			PromptPreview: finalPrompt,
-			LLMLatencyMS:  latencyMS,
+			PromptPreview: execution.PromptPreview,
+			LLMLatencyMS:  execution.LLMLatencyMS,
 		}, err
 	}
 
 	return SolveOutput{
 		AgentName:     DirectCodegenAgentName,
-		Model:         effectiveModel(resp.Model, input.Model),
-		PromptPreview: finalPrompt,
-		RawResponse:   resp.Content,
-		TokenInput:    resp.InputTokens,
-		TokenOutput:   resp.OutputTokens,
-		LLMLatencyMS:  latencyMS,
+		Model:         execution.Model,
+		PromptPreview: execution.PromptPreview,
+		RawResponse:   execution.RawResponse,
+		TokenInput:    execution.TokenInput,
+		TokenOutput:   execution.TokenOutput,
+		LLMLatencyMS:  execution.LLMLatencyMS,
 	}, nil
 }
 
 type analyzeThenCodegenStrategy struct{}
 
 type directCodegenRepairStrategy struct{}
-
-type adaptiveRepairV1Strategy struct{}
 
 type toolingCodegenV1Strategy struct{}
 
@@ -150,51 +148,24 @@ func (directCodegenRepairStrategy) Name() string {
 
 func (directCodegenRepairStrategy) Execute(ctx context.Context, client llm.Client, input SolveInput) (SolveOutput, error) {
 	finalPrompt := prompt.BuildSolvePrompt(input.Problem, input.PromptName)
-	resp, latencyMS, err := generateOnce(ctx, client, input.Model, finalPrompt)
+	execution, err := executeLLMOnce(ctx, client, input.Model, finalPrompt)
 	if err != nil {
 		return SolveOutput{
 			AgentName:     DirectCodegenRepairAgentName,
 			Model:         input.Model,
-			PromptPreview: finalPrompt,
-			LLMLatencyMS:  latencyMS,
+			PromptPreview: execution.PromptPreview,
+			LLMLatencyMS:  execution.LLMLatencyMS,
 		}, err
 	}
 
 	return SolveOutput{
 		AgentName:     DirectCodegenRepairAgentName,
-		Model:         effectiveModel(resp.Model, input.Model),
-		PromptPreview: finalPrompt,
-		RawResponse:   resp.Content,
-		TokenInput:    resp.InputTokens,
-		TokenOutput:   resp.OutputTokens,
-		LLMLatencyMS:  latencyMS,
-	}, nil
-}
-
-func (adaptiveRepairV1Strategy) Name() string {
-	return AdaptiveRepairV1AgentName
-}
-
-func (adaptiveRepairV1Strategy) Execute(ctx context.Context, client llm.Client, input SolveInput) (SolveOutput, error) {
-	finalPrompt := prompt.BuildSolvePrompt(input.Problem, input.PromptName)
-	resp, latencyMS, err := generateOnce(ctx, client, input.Model, finalPrompt)
-	if err != nil {
-		return SolveOutput{
-			AgentName:     AdaptiveRepairV1AgentName,
-			Model:         input.Model,
-			PromptPreview: finalPrompt,
-			LLMLatencyMS:  latencyMS,
-		}, err
-	}
-
-	return SolveOutput{
-		AgentName:     AdaptiveRepairV1AgentName,
-		Model:         effectiveModel(resp.Model, input.Model),
-		PromptPreview: finalPrompt,
-		RawResponse:   resp.Content,
-		TokenInput:    resp.InputTokens,
-		TokenOutput:   resp.OutputTokens,
-		LLMLatencyMS:  latencyMS,
+		Model:         execution.Model,
+		PromptPreview: execution.PromptPreview,
+		RawResponse:   execution.RawResponse,
+		TokenInput:    execution.TokenInput,
+		TokenOutput:   execution.TokenOutput,
+		LLMLatencyMS:  execution.LLMLatencyMS,
 	}, nil
 }
 
@@ -204,21 +175,21 @@ func (toolingCodegenV1Strategy) Name() string {
 
 func (toolingCodegenV1Strategy) Execute(ctx context.Context, client llm.Client, input SolveInput) (SolveOutput, error) {
 	finalPrompt := prompt.BuildSolvePrompt(input.Problem, input.PromptName)
-	resp, latencyMS, err := generateOnce(ctx, client, input.Model, finalPrompt)
+	execution, err := executeLLMOnce(ctx, client, input.Model, finalPrompt)
 	output := SolveOutput{
 		AgentName:     ToolingCodegenV1AgentName,
-		Model:         effectiveModel(resp.Model, input.Model),
-		PromptPreview: finalPrompt,
-		RawResponse:   resp.Content,
-		TokenInput:    resp.InputTokens,
-		TokenOutput:   resp.OutputTokens,
-		LLMLatencyMS:  latencyMS,
+		Model:         execution.Model,
+		PromptPreview: execution.PromptPreview,
+		RawResponse:   execution.RawResponse,
+		TokenInput:    execution.TokenInput,
+		TokenOutput:   execution.TokenOutput,
+		LLMLatencyMS:  execution.LLMLatencyMS,
 	}
 	if err != nil {
 		return output, err
 	}
 
-	code := ExtractCPPCode(resp.Content)
+	code := extractCPPCode(execution.RawResponse)
 	if input.ToolingRunner != nil && strings.TrimSpace(code) != "" {
 		_, _ = input.ToolingRunner.Call(ctx, tooling.SampleJudgeToolName, tooling.CallInput{
 			Problem:    input.Problem,
@@ -235,64 +206,38 @@ func (analyzeThenCodegenStrategy) Name() string {
 
 func (analyzeThenCodegenStrategy) Execute(ctx context.Context, client llm.Client, input SolveInput) (SolveOutput, error) {
 	analysisPrompt := prompt.BuildAnalysisPrompt(input.Problem)
-	analysisResp, analysisLatencyMS, err := generateOnce(ctx, client, input.Model, analysisPrompt)
+	analysisExecution, err := executeLLMOnce(ctx, client, input.Model, analysisPrompt)
 	if err != nil {
 		return SolveOutput{
 			AgentName:     AnalyzeThenCodegenAgentName,
 			Model:         input.Model,
-			PromptPreview: analysisPrompt,
-			LLMLatencyMS:  analysisLatencyMS,
+			PromptPreview: analysisExecution.PromptPreview,
+			LLMLatencyMS:  analysisExecution.LLMLatencyMS,
 		}, err
 	}
 
-	finalPrompt := prompt.BuildSolvePromptWithAnalysis(input.Problem, input.PromptName, analysisResp.Content)
-	codeResp, codeLatencyMS, err := generateOnce(ctx, client, input.Model, finalPrompt)
+	finalPrompt := prompt.BuildSolvePromptWithAnalysis(input.Problem, input.PromptName, analysisExecution.RawResponse)
+	codeExecution, err := executeLLMOnce(ctx, client, input.Model, finalPrompt)
 	if err != nil {
 		return SolveOutput{
 			AgentName:       AnalyzeThenCodegenAgentName,
-			Model:           effectiveModel(analysisResp.Model, input.Model),
-			PromptPreview:   finalPrompt,
-			TokenInput:      analysisResp.InputTokens,
-			TokenOutput:     analysisResp.OutputTokens,
-			LLMLatencyMS:    analysisLatencyMS + codeLatencyMS,
-			AnalysisPreview: analysisResp.Content,
+			Model:           effectiveModel(analysisExecution.Model, input.Model),
+			PromptPreview:   codeExecution.PromptPreview,
+			TokenInput:      analysisExecution.TokenInput,
+			TokenOutput:     analysisExecution.TokenOutput,
+			LLMLatencyMS:    analysisExecution.LLMLatencyMS + codeExecution.LLMLatencyMS,
+			AnalysisPreview: analysisExecution.RawResponse,
 		}, err
 	}
 
 	return SolveOutput{
 		AgentName:       AnalyzeThenCodegenAgentName,
-		Model:           effectiveModel(codeResp.Model, analysisResp.Model, input.Model),
-		PromptPreview:   finalPrompt,
-		RawResponse:     codeResp.Content,
-		TokenInput:      analysisResp.InputTokens + codeResp.InputTokens,
-		TokenOutput:     analysisResp.OutputTokens + codeResp.OutputTokens,
-		LLMLatencyMS:    analysisLatencyMS + codeLatencyMS,
-		AnalysisPreview: analysisResp.Content,
+		Model:           effectiveModel(codeExecution.Model, analysisExecution.Model, input.Model),
+		PromptPreview:   codeExecution.PromptPreview,
+		RawResponse:     codeExecution.RawResponse,
+		TokenInput:      analysisExecution.TokenInput + codeExecution.TokenInput,
+		TokenOutput:     analysisExecution.TokenOutput + codeExecution.TokenOutput,
+		LLMLatencyMS:    analysisExecution.LLMLatencyMS + codeExecution.LLMLatencyMS,
+		AnalysisPreview: analysisExecution.RawResponse,
 	}, nil
-}
-
-func generateOnce(ctx context.Context, client llm.Client, modelName, promptText string) (llm.GenerateResponse, int, error) {
-	startedAt := time.Now()
-	resp, err := client.Generate(ctx, llm.GenerateRequest{
-		Prompt: promptText,
-		Model:  modelName,
-	})
-	return resp, elapsedMS(startedAt), err
-}
-
-func elapsedMS(start time.Time) int {
-	if start.IsZero() {
-		return 0
-	}
-	return int(time.Since(start).Milliseconds())
-}
-
-func effectiveModel(values ...string) string {
-	for _, value := range values {
-		trimmed := strings.TrimSpace(value)
-		if trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }

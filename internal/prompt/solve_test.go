@@ -35,67 +35,50 @@ func TestBuildSolvePromptUsesDifferentTemplates(t *testing.T) {
 	}
 }
 
-func TestBuildVerdictSpecificRepairPrompts(t *testing.T) {
+func TestBuildVerdictSpecificRepairPromptsUseDistinctInstructions(t *testing.T) {
 	problem := &model.Problem{
-		Title:       "Echo",
-		Description: "echo input",
-		InputSpec:   "one line",
-		OutputSpec:  "same line",
-		Samples:     `[{"input":"hi","output":"hi"}]`,
-	}
-	previousCode := "int main(){return 0;}"
-	feedback := "case #1 expected hi got bye"
-
-	tests := []struct {
-		name     string
-		prompt   string
-		verdict  string
-		required []string
-	}{
-		{
-			name:    "wrong answer",
-			prompt:  BuildWARepairPrompt(problem, previousCode, feedback),
-			verdict: "WA",
-			required: []string{
-				"edge cases",
-				"algorithm correction",
-			},
-		},
-		{
-			name:    "runtime error",
-			prompt:  BuildRERepairPrompt(problem, previousCode, feedback),
-			verdict: "RE",
-			required: []string{
-				"safety checks",
-				"runtime robustness",
-			},
-		},
-		{
-			name:    "time limit",
-			prompt:  BuildTLERepairPrompt(problem, previousCode, feedback),
-			verdict: "TLE",
-			required: []string{
-				"complexity comparison",
-				"algorithm rewrite",
-			},
-		},
+		Title:       "Repair",
+		Description: "fix the solution",
+		InputSpec:   "input",
+		OutputSpec:  "output",
+		Samples:     `[{"input":"1","output":"1"}]`,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			required := append([]string{
-				problem.Description,
-				previousCode,
-				feedback,
-				"Judge Verdict: " + tt.verdict,
-				"C++17",
-				"Return exactly one markdown cpp code block",
-			}, tt.required...)
-			for _, needle := range required {
-				if !strings.Contains(tt.prompt, needle) {
-					t.Fatalf("expected prompt to include %q, got %q", needle, tt.prompt)
-				}
-			}
-		})
+	waPrompt := BuildWARepairPrompt(problem, CPP17MinimalSolvePromptName, "int main() { return 0; }", "wrong answer on edge case")
+	rePrompt := BuildRERepairPrompt(problem, StrictCPP17SolvePromptName, "int main() { return 0; }", "segmentation fault")
+	tlePrompt := BuildTLERepairPrompt(problem, CPP17MinimalSolvePromptName, "int main() { return 0; }", "time limit exceeded")
+
+	for name, prompt := range map[string]string{
+		"wa":  waPrompt,
+		"re":  rePrompt,
+		"tle": tlePrompt,
+	} {
+		if !strings.Contains(prompt, "PROMPT_TEMPLATE: repair_"+name) {
+			t.Fatalf("expected %s repair prompt marker, got %q", name, prompt)
+		}
+	}
+
+	if !strings.Contains(waPrompt, "PROMPT_TEMPLATE: cpp17_minimal") {
+		t.Fatalf("expected WA repair prompt to preserve cpp17_minimal family, got %q", waPrompt)
+	}
+	if !strings.Contains(rePrompt, "PROMPT_TEMPLATE: strict_cpp17") {
+		t.Fatalf("expected RE repair prompt to preserve strict_cpp17 family, got %q", rePrompt)
+	}
+	if !strings.Contains(tlePrompt, "PROMPT_TEMPLATE: cpp17_minimal") {
+		t.Fatalf("expected TLE repair prompt to preserve cpp17_minimal family, got %q", tlePrompt)
+	}
+
+	if !strings.Contains(waPrompt, "diagnose the mistake") ||
+		!strings.Contains(waPrompt, "at least 3 edge cases") ||
+		!strings.Contains(waPrompt, "corrected algorithm") {
+		t.Fatalf("expected WA repair prompt to require diagnosis, edge cases, and corrected algorithm, got %q", waPrompt)
+	}
+	if !strings.Contains(rePrompt, "root cause in implementation safety") ||
+		!strings.Contains(rePrompt, "robust full code") {
+		t.Fatalf("expected RE repair prompt to require safety diagnosis and robust code, got %q", rePrompt)
+	}
+	if !strings.Contains(tlePrompt, "old vs new complexity") ||
+		!strings.Contains(tlePrompt, "more efficient rewrite") {
+		t.Fatalf("expected TLE repair prompt to require complexity comparison and rewrite, got %q", tlePrompt)
 	}
 }

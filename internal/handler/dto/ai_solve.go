@@ -35,17 +35,24 @@ type AISolveResponse struct {
 }
 
 type AISolveAttemptResponse struct {
-	ID             uint   `json:"id"`
-	AttemptNo      int    `json:"attempt_no"`
-	Stage          string `json:"stage"`
-	Model          string `json:"model"`
-	Verdict        string `json:"verdict"`
-	FailureType    string `json:"failure_type"`
-	RepairReason   string `json:"repair_reason"`
-	TokenInput     int64  `json:"token_input"`
-	TokenOutput    int64  `json:"token_output"`
-	LLMLatencyMS   int    `json:"llm_latency_ms"`
-	TotalLatencyMS int    `json:"total_latency_ms"`
+	ID               uint   `json:"id"`
+	AttemptNo        int    `json:"attempt_no"`
+	Stage            string `json:"stage"`
+	Model            string `json:"model"`
+	Verdict          string `json:"verdict"`
+	FailureType      string `json:"failure_type"`
+	RepairReason     string `json:"repair_reason"`
+	StrategyPath     string `json:"strategy_path"`
+	PromptPreview    string `json:"prompt_preview"`
+	ExtractedCode    string `json:"extracted_code"`
+	JudgePassedCount int    `json:"judge_passed_count"`
+	JudgeTotalCount  int    `json:"judge_total_count"`
+	TimedOut         bool   `json:"timed_out"`
+	ErrorMessage     string `json:"error_message"`
+	TokenInput       int64  `json:"token_input"`
+	TokenOutput      int64  `json:"token_output"`
+	LLMLatencyMS     int    `json:"llm_latency_ms"`
+	TotalLatencyMS   int    `json:"total_latency_ms"`
 }
 
 type AISolveErrorResponse struct {

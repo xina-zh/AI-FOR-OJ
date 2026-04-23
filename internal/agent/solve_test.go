@@ -3,53 +3,19 @@ package agent
 import (
 	"context"
 	"errors"
-	"slices"
 	"testing"
 
 	"ai-for-oj/internal/llm"
 	"ai-for-oj/internal/model"
-	"ai-for-oj/internal/tooling"
 )
 
-func TestExtractCPPCode(t *testing.T) {
-	tests := []struct {
-		name string
-		raw  string
-		want string
-	}{
-		{
-			name: "cpp fence",
-			raw:  "text\n```cpp\nint main(){return 0;}\n```",
-			want: "int main(){return 0;}",
-		},
-		{
-			name: "generic fence",
-			raw:  "```\n#include <bits/stdc++.h>\n```",
-			want: "#include <bits/stdc++.h>",
-		},
-		{
-			name: "no fence",
-			raw:  "int main(){return 0;}",
-			want: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := ExtractCPPCode(tt.raw); got != tt.want {
-				t.Fatalf("expected %q, got %q", tt.want, got)
-			}
-		})
-	}
-}
-
-type fakeAgentLLMClient struct {
+type fakeSolveLLMClient struct {
 	responses []llm.GenerateResponse
 	errors    []error
 	requests  []llm.GenerateRequest
 }
 
-func (c *fakeAgentLLMClient) Generate(_ context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
+func (c *fakeSolveLLMClient) Generate(_ context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
 	c.requests = append(c.requests, req)
 	index := len(c.requests) - 1
 	if index < len(c.errors) && c.errors[index] != nil {
@@ -61,86 +27,140 @@ func (c *fakeAgentLLMClient) Generate(_ context.Context, req llm.GenerateRequest
 	return llm.GenerateResponse{}, nil
 }
 
-type fakeAgentTool struct {
-	name  string
-	err   error
-	calls int
-}
-
-func (t *fakeAgentTool) Name() string {
-	return t.name
-}
-
-func (t *fakeAgentTool) Run(context.Context, tooling.CallInput) (tooling.CallOutput, error) {
-	t.calls++
-	return tooling.CallOutput{ToolName: t.name, Status: tooling.CallStatusFailed, Summary: "sample failed"}, t.err
-}
-
-func TestToolingCodegenAgentRegistration(t *testing.T) {
-	resolved, err := ResolveSolveAgentName(ToolingCodegenV1AgentName)
+func TestResolveSolveAgentNameAdaptiveRepairV1(t *testing.T) {
+	got, err := ResolveSolveAgentName("adaptive_repair_v1")
 	if err != nil {
 		t.Fatalf("ResolveSolveAgentName returned error: %v", err)
 	}
-	if resolved != ToolingCodegenV1AgentName {
-		t.Fatalf("expected %s, got %s", ToolingCodegenV1AgentName, resolved)
-	}
-	if !slices.Contains(ListSolveAgents(), ToolingCodegenV1AgentName) {
-		t.Fatalf("expected ListSolveAgents to include %s", ToolingCodegenV1AgentName)
+	if got != "adaptive_repair_v1" {
+		t.Fatalf("ResolveSolveAgentName = %q, want %q", got, "adaptive_repair_v1")
 	}
 }
 
-func TestToolingCodegenAgentCallsSampleJudgeWhenEnabled(t *testing.T) {
-	tool := &fakeAgentTool{name: tooling.SampleJudgeToolName}
-	registry := tooling.NewRegistry()
-	registry.Register(tool)
-	runner := registry.NewRunner(tooling.Config{Enabled: []string{tooling.SampleJudgeToolName}, MaxCalls: 1})
-	client := &fakeAgentLLMClient{
-		responses: []llm.GenerateResponse{
-			{Model: "mock", Content: "```cpp\nint main(){return 0;}\n```", InputTokens: 10, OutputTokens: 20},
-		},
-	}
-	strategy, err := ResolveSolveStrategy(ToolingCodegenV1AgentName)
+func TestResolveSolveStrategyAdaptiveRepairV1(t *testing.T) {
+	got, err := ResolveSolveStrategy("adaptive_repair_v1")
 	if err != nil {
 		t.Fatalf("ResolveSolveStrategy returned error: %v", err)
 	}
-
-	output, err := strategy.Execute(context.Background(), client, SolveInput{
-		Problem:       &model.Problem{BaseModel: model.BaseModel{ID: 1}},
-		Model:         "mock",
-		ToolingRunner: runner,
-	})
-	if err != nil {
-		t.Fatalf("Execute returned error: %v", err)
+	if got == nil {
+		t.Fatal("ResolveSolveStrategy returned nil strategy")
 	}
-	if tool.calls != 1 || output.ToolCallCount != 1 {
-		t.Fatalf("expected one tool call, tool=%d output=%+v", tool.calls, output)
+	if got.Name() != "adaptive_repair_v1" {
+		t.Fatalf("ResolveSolveStrategy.Name() = %q, want %q", got.Name(), "adaptive_repair_v1")
 	}
 }
 
-func TestToolingCodegenAgentContinuesWhenToolCallFails(t *testing.T) {
-	tool := &fakeAgentTool{name: tooling.SampleJudgeToolName, err: errors.New("tool failed")}
-	registry := tooling.NewRegistry()
-	registry.Register(tool)
-	runner := registry.NewRunner(tooling.Config{Enabled: []string{tooling.SampleJudgeToolName}, MaxCalls: 1})
-	client := &fakeAgentLLMClient{
+func TestSupportsSelfRepairDoesNotDriveAdaptiveRepair(t *testing.T) {
+	if SupportsSelfRepair("adaptive_repair_v1") {
+		t.Fatal("SupportsSelfRepair should not report adaptive_repair_v1 as self-repair capable")
+	}
+}
+
+func TestAnalyzeThenCodegenFailureKeepsAnalysisModelPriority(t *testing.T) {
+	client := &fakeSolveLLMClient{
 		responses: []llm.GenerateResponse{
-			{Model: "mock", Content: "```cpp\nint main(){return 0;}\n```", InputTokens: 10, OutputTokens: 20},
+			{
+				Model:   "analysis-model",
+				Content: "analysis text",
+			},
+		},
+		errors: []error{
+			nil,
+			errors.New("codegen failed"),
 		},
 	}
-	strategy, err := ResolveSolveStrategy(ToolingCodegenV1AgentName)
-	if err != nil {
-		t.Fatalf("ResolveSolveStrategy returned error: %v", err)
+
+	output, err := analyzeThenCodegenStrategy{}.Execute(context.Background(), client, SolveInput{
+		Problem: &model.Problem{
+			Title:       "Echo",
+			Description: "echo input",
+			InputSpec:   "one line",
+			OutputSpec:  "same line",
+			Samples:     "[]",
+		},
+		Model:      "input-model",
+		PromptName: "default",
+	})
+	if err == nil {
+		t.Fatal("analyzeThenCodegenStrategy.Execute returned nil error, want failure")
 	}
 
-	output, err := strategy.Execute(context.Background(), client, SolveInput{
-		Problem:       &model.Problem{BaseModel: model.BaseModel{ID: 1}},
-		Model:         "mock",
-		ToolingRunner: runner,
-	})
-	if err != nil {
-		t.Fatalf("Execute returned error despite tool failure: %v", err)
+	if output.Model != "analysis-model" {
+		t.Fatalf("output.Model = %q, want %q", output.Model, "analysis-model")
 	}
-	if output.RawResponse == "" || output.ToolCallCount != 1 {
-		t.Fatalf("expected generated code and one attempted tool call, got %+v", output)
+}
+
+func TestAnalyzeThenCodegenKeepsInputModelOnAnalysisError(t *testing.T) {
+	client := &fakeSolveLLMClient{
+		errors: []error{errors.New("analysis failed")},
+	}
+
+	output, err := analyzeThenCodegenStrategy{}.Execute(context.Background(), client, SolveInput{
+		Problem: &model.Problem{
+			Title:       "Echo",
+			Description: "echo input",
+			InputSpec:   "one line",
+			OutputSpec:  "same line",
+			Samples:     "[]",
+		},
+		Model:      "input-model",
+		PromptName: "default",
+	})
+	if err == nil {
+		t.Fatal("analyzeThenCodegenStrategy.Execute returned nil error, want failure")
+	}
+
+	if output.Model != "input-model" {
+		t.Fatalf("output.Model = %q, want %q", output.Model, "input-model")
+	}
+}
+
+func TestDirectCodegenKeepsInputModelOnError(t *testing.T) {
+	client := &fakeSolveLLMClient{
+		errors: []error{errors.New("generate failed")},
+	}
+
+	output, err := directCodegenStrategy{}.Execute(context.Background(), client, SolveInput{
+		Problem: &model.Problem{
+			Title:       "Echo",
+			Description: "echo input",
+			InputSpec:   "one line",
+			OutputSpec:  "same line",
+			Samples:     "[]",
+		},
+		Model:      "input-model",
+		PromptName: "default",
+	})
+	if err == nil {
+		t.Fatal("directCodegenStrategy.Execute returned nil error, want failure")
+	}
+
+	if output.Model != "input-model" {
+		t.Fatalf("output.Model = %q, want %q", output.Model, "input-model")
+	}
+}
+
+func TestDirectCodegenRepairKeepsInputModelOnError(t *testing.T) {
+	client := &fakeSolveLLMClient{
+		errors: []error{errors.New("generate failed")},
+	}
+
+	output, err := directCodegenRepairStrategy{}.Execute(context.Background(), client, SolveInput{
+		Problem: &model.Problem{
+			Title:       "Echo",
+			Description: "echo input",
+			InputSpec:   "one line",
+			OutputSpec:  "same line",
+			Samples:     "[]",
+		},
+		Model:      "input-model",
+		PromptName: "default",
+	})
+	if err == nil {
+		t.Fatal("directCodegenRepairStrategy.Execute returned nil error, want failure")
+	}
+
+	if output.Model != "input-model" {
+		t.Fatalf("output.Model = %q, want %q", output.Model, "input-model")
 	}
 }

@@ -2,37 +2,37 @@ package agent
 
 import "strings"
 
+type FailureType string
+
 const (
-	FailureTypeWrongAnswer  = "wrong_answer"
-	FailureTypeRuntimeError = "runtime_error"
-	FailureTypeTimeLimit    = "time_limit"
-	FailureTypeMemoryLimit  = "memory_limit"
-	FailureTypeCompileError = "compile_error"
-	FailureTypeUnknown      = "unknown"
+	FailureTypeUnknown      FailureType = "unknown"
+	FailureTypeWrongAnswer  FailureType = "wrong_answer"
+	FailureTypeRuntimeError FailureType = "runtime_error"
+	FailureTypeTimeLimit    FailureType = "time_limit"
 )
 
-type FailureClassification struct {
-	Verdict     string
-	FailureType string
-	Repairable  bool
+// JudgeFailureObservation captures the judge output needed to classify a failure.
+type JudgeFailureObservation struct {
+	Verdict       string
+	TimedOut      bool
+	CompileStderr string
+	RunStderr     string
+	PassedCount   int
+	TotalCount    int
+	ExecStage     string
 }
 
-type FailureClassifier struct{}
+func ClassifyFailure(observation JudgeFailureObservation) FailureType {
+	verdict := strings.ToUpper(strings.TrimSpace(observation.Verdict))
 
-func (FailureClassifier) Classify(verdict string) FailureClassification {
-	normalized := strings.ToUpper(strings.TrimSpace(verdict))
-	switch normalized {
-	case "WA":
-		return FailureClassification{Verdict: normalized, FailureType: FailureTypeWrongAnswer, Repairable: true}
-	case "RE":
-		return FailureClassification{Verdict: normalized, FailureType: FailureTypeRuntimeError, Repairable: true}
-	case "TLE":
-		return FailureClassification{Verdict: normalized, FailureType: FailureTypeTimeLimit, Repairable: true}
-	case "MLE":
-		return FailureClassification{Verdict: normalized, FailureType: FailureTypeMemoryLimit, Repairable: true}
-	case "CE":
-		return FailureClassification{Verdict: normalized, FailureType: FailureTypeCompileError, Repairable: true}
+	switch {
+	case observation.TimedOut, verdict == "TLE", verdict == "TIMEDOUT":
+		return FailureTypeTimeLimit
+	case verdict == "WA":
+		return FailureTypeWrongAnswer
+	case verdict == "RE":
+		return FailureTypeRuntimeError
 	default:
-		return FailureClassification{Verdict: normalized, FailureType: FailureTypeUnknown, Repairable: false}
+		return FailureTypeUnknown
 	}
 }

@@ -1,45 +1,97 @@
 package agent
 
 const (
-	StageInitialCodegen       = "initial_codegen"
-	StageWAAnalysisRepair     = "wa_analysis_repair"
-	StageRESafetyRepair       = "re_safety_repair"
-	StageTLEComplexityRewrite = "tle_complexity_rewrite"
-	StageFallbackRewrite      = "fallback_rewrite"
+	RepairStageWAAnalysisRepair     = "wa_analysis_repair"
+	RepairStageRESafetyRepair       = "re_safety_repair"
+	RepairStageTLEComplexityRewrite = "tle_complexity_rewrite"
+	RepairStageFallbackRewrite      = "fallback_rewrite"
+	maxWATargetedRepairs            = 2
 )
 
-type RepairPlan struct {
-	Stage        string
-	FailureType  string
-	RepairReason string
+type RepairPlanInput struct {
+	AttemptCount   int
+	LastFailure    FailureType
+	PreviousStages []string
+	MaxBudget      int
+}
+
+type RepairPlanDecision struct {
+	Stage string
+	Stop  bool
 }
 
 type RepairPlanner struct {
-	MaxAttempts int
+	maxBudget int
 }
 
-func (p RepairPlanner) NextRepair(completedAttempts int, classification FailureClassification) (RepairPlan, bool) {
-	maxAttempts := p.MaxAttempts
-	if maxAttempts <= 0 {
-		maxAttempts = 3
+func NewRepairPlanner(maxBudget int) RepairPlanner {
+	return RepairPlanner{maxBudget: maxBudget}
+}
+
+func (p RepairPlanner) Next(input RepairPlanInput) RepairPlanDecision {
+	budget := input.MaxBudget
+	if budget <= 0 {
+		budget = p.maxBudget
 	}
-	if completedAttempts >= maxAttempts || !classification.Repairable {
-		return RepairPlan{}, false
+	if budget <= 0 || input.AttemptCount >= budget {
+		return RepairPlanDecision{Stop: true}
 	}
 
-	stage := StageFallbackRewrite
-	switch classification.FailureType {
+	if containsStage(input.PreviousStages, RepairStageFallbackRewrite) {
+		return RepairPlanDecision{Stop: true}
+	}
+
+	stage := stageForFailure(input.LastFailure)
+	if stage == "" {
+		stage = RepairStageFallbackRewrite
+	}
+
+	if stage == RepairStageWAAnalysisRepair {
+		if countStage(input.PreviousStages, stage) < maxWATargetedRepairs {
+			return RepairPlanDecision{Stage: stage}
+		}
+		return RepairPlanDecision{Stage: RepairStageFallbackRewrite}
+	}
+
+	if !containsStage(input.PreviousStages, stage) {
+		return RepairPlanDecision{Stage: stage}
+	}
+
+	if stage != RepairStageFallbackRewrite {
+		return RepairPlanDecision{Stage: RepairStageFallbackRewrite}
+	}
+
+	return RepairPlanDecision{Stop: true}
+}
+
+func stageForFailure(failure FailureType) string {
+	switch failure {
 	case FailureTypeWrongAnswer:
-		stage = StageWAAnalysisRepair
+		return RepairStageWAAnalysisRepair
 	case FailureTypeRuntimeError:
-		stage = StageRESafetyRepair
+		return RepairStageRESafetyRepair
 	case FailureTypeTimeLimit:
-		stage = StageTLEComplexityRewrite
+		return RepairStageTLEComplexityRewrite
+	default:
+		return ""
 	}
+}
 
-	return RepairPlan{
-		Stage:        stage,
-		FailureType:  classification.FailureType,
-		RepairReason: classification.Verdict,
-	}, true
+func containsStage(stages []string, target string) bool {
+	for _, stage := range stages {
+		if stage == target {
+			return true
+		}
+	}
+	return false
+}
+
+func countStage(stages []string, target string) int {
+	count := 0
+	for _, stage := range stages {
+		if stage == target {
+			count++
+		}
+	}
+	return count
 }

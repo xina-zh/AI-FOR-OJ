@@ -2,184 +2,281 @@ package agent
 
 import (
 	"context"
-	"errors"
+	"fmt"
+	"regexp"
 	"strings"
-	"time"
 
 	"ai-for-oj/internal/llm"
+	"ai-for-oj/internal/model"
 	"ai-for-oj/internal/prompt"
 )
 
-var ErrAdaptiveCodeNotExtracted = errors.New("failed to extract cpp17 code from adaptive repair response")
+const (
+	adaptiveRepairInitialStage       = "initial_solve"
+	DefaultAdaptiveRepairMaxAttempts = 4
+)
 
-type JudgeResult struct {
-	SubmissionID uint
-	Verdict      string
-	ErrorMessage string
-	Feedback     string
+type JudgeFeedback struct {
+	Verdict       string
+	TimedOut      bool
+	CompileStderr string
+	RunStdout     string
+	RunStderr     string
+	ErrorMessage  string
+	PassedCount   int
+	TotalCount    int
+	ExecStage     string
 }
 
 type JudgeSubmitter interface {
-	Submit(ctx context.Context, sourceCode string) (*JudgeResult, error)
+	Submit(ctx context.Context, sourceCode string) (*JudgeFeedback, error)
 }
 
-type AttemptRecord struct {
-	AttemptNo      int
-	Stage          string
-	Model          string
-	PromptPreview  string
-	RawResponse    string
-	ExtractedCode  string
-	Verdict        string
-	FailureType    string
-	RepairReason   string
-	TokenInput     int64
-	TokenOutput    int64
-	LLMLatencyMS   int
-	TotalLatencyMS int
+type AdaptiveRepairAttempt struct {
+	AttemptNo     int
+	Stage         string
+	FailureType   FailureType
+	PromptPreview string
+	RawResponse   string
+	Model         string
+	TokenInput    int64
+	TokenOutput   int64
+	LLMLatencyMS  int
+	JudgeFeedback JudgeFeedback
 }
 
-type AttemptRecorder interface {
-	RecordAttempt(ctx context.Context, attempt AttemptRecord) error
-}
-
-type CoordinatorOutput struct {
-	AgentName      string
-	Model          string
-	PromptPreview  string
-	RawResponse    string
-	ExtractedCode  string
-	SubmissionID   uint
-	Verdict        string
-	ErrorMessage   string
-	TokenInput     int64
-	TokenOutput    int64
-	LLMLatencyMS   int
-	TotalLatencyMS int
-	AttemptCount   int
-	FailureType    string
-	StrategyPath   string
-	Attempts       []AttemptRecord
+type AdaptiveRepairResult struct {
+	SolveOutput   SolveOutput
+	AttemptCount  int
+	StrategyPath  []string
+	Attempts      []AdaptiveRepairAttempt
+	FinalFeedback *JudgeFeedback
+	FinalFailure  FailureType
 }
 
 type AdaptiveRepairCoordinator struct {
-	MaxAttempts int
-	Classifier  FailureClassifier
-	Planner     RepairPlanner
+	planner RepairPlanner
 }
 
-func (c AdaptiveRepairCoordinator) Execute(
-	ctx context.Context,
-	client llm.Client,
-	input SolveInput,
-	submitter JudgeSubmitter,
-	recorder AttemptRecorder,
-) (CoordinatorOutput, error) {
-	startedAt := time.Now()
-	maxAttempts := c.MaxAttempts
-	if maxAttempts <= 0 {
-		maxAttempts = 3
+func NewAdaptiveRepairCoordinator(maxBudget int) AdaptiveRepairCoordinator {
+	if maxBudget <= 0 {
+		maxBudget = DefaultAdaptiveRepairMaxAttempts
 	}
-	planner := c.Planner
-	if planner.MaxAttempts <= 0 {
-		planner.MaxAttempts = maxAttempts
+	return AdaptiveRepairCoordinator{planner: NewRepairPlanner(maxBudget)}
+}
+
+func (c AdaptiveRepairCoordinator) Execute(ctx context.Context, client llm.Client, input SolveInput) (AdaptiveRepairResult, error) {
+	if input.Problem == nil {
+		return AdaptiveRepairResult{
+			SolveOutput: SolveOutput{
+				AgentName: AdaptiveRepairV1AgentName,
+				Model:     input.Model,
+			},
+		}, fmt.Errorf("problem is required")
 	}
 
-	var output CoordinatorOutput
-	output.AgentName = AdaptiveRepairV1AgentName
-	output.Model = input.Model
+	planner := c.planner
+	if planner.maxBudget <= 0 {
+		planner = NewRepairPlanner(DefaultAdaptiveRepairMaxAttempts)
+	}
 
-	stage := StageInitialCodegen
-	stages := make([]string, 0, maxAttempts)
-	var previousCode string
-	var feedback string
-	var lastFailureType string
+	attempts := make([]AdaptiveRepairAttempt, 0, 4)
+	strategyPath := make([]string, 0, 4)
+	var totalInput int64
+	var totalOutput int64
+	var totalLatency int
+	modelName := input.Model
+	previousCode := ""
+	currentStage := adaptiveRepairInitialStage
+	var finalFeedback *JudgeFeedback
+	var finalFailure FailureType = FailureTypeUnknown
+	var lastPromptPreview string
+	var lastRawResponse string
 
-	for attemptNo := 1; attemptNo <= maxAttempts; attemptNo++ {
-		promptText := prompt.BuildSolvePrompt(input.Problem, input.PromptName)
-		if attemptNo > 1 {
-			promptText = prompt.BuildRepairPromptForStage(input.Problem, stage, previousCode, feedback)
+	for {
+		var promptText string
+		if len(attempts) == 0 {
+			promptText = prompt.BuildSolvePrompt(input.Problem, input.PromptName)
+		} else {
+			promptText = buildAdaptiveRepairPrompt(input.Problem, input.PromptName, currentStage, previousCode, finalFeedback)
 		}
 
-		llmOutput, err := ExecutePrompt(ctx, client, input.Model, promptText)
-		llmOutput.AgentName = AdaptiveRepairV1AgentName
-		output.TokenInput += llmOutput.TokenInput
-		output.TokenOutput += llmOutput.TokenOutput
-		output.LLMLatencyMS += llmOutput.LLMLatencyMS
-		output.Model = effectiveModel(llmOutput.Model, output.Model, input.Model)
-		output.PromptPreview = llmOutput.PromptPreview
-		output.RawResponse = llmOutput.RawResponse
+		execution, err := executeLLMOnce(ctx, client, modelName, promptText)
+		totalInput += execution.TokenInput
+		totalOutput += execution.TokenOutput
+		totalLatency += execution.LLMLatencyMS
+		modelName = effectiveModel(execution.Model, modelName)
+		lastPromptPreview = execution.PromptPreview
+		lastRawResponse = execution.RawResponse
+		previousCode = extractCPPCode(execution.RawResponse)
+
+		attempt := AdaptiveRepairAttempt{
+			AttemptNo:     len(attempts) + 1,
+			Stage:         currentStage,
+			PromptPreview: execution.PromptPreview,
+			RawResponse:   execution.RawResponse,
+			Model:         modelName,
+			TokenInput:    execution.TokenInput,
+			TokenOutput:   execution.TokenOutput,
+			LLMLatencyMS:  execution.LLMLatencyMS,
+		}
+		attempts = append(attempts, attempt)
+
 		if err != nil {
-			output.TotalLatencyMS = elapsedMS(startedAt)
-			return output, err
+			return c.buildResult(modelName, lastPromptPreview, lastRawResponse, totalInput, totalOutput, totalLatency, attempts, strategyPath, finalFeedback, finalFailure), err
 		}
 
-		code := ExtractCPPCode(llmOutput.RawResponse)
-		output.ExtractedCode = code
-		if strings.TrimSpace(code) == "" {
-			output.TotalLatencyMS = elapsedMS(startedAt)
-			return output, ErrAdaptiveCodeNotExtracted
+		if input.JudgeSubmitter == nil {
+			return c.buildResult(modelName, lastPromptPreview, lastRawResponse, totalInput, totalOutput, totalLatency, attempts, strategyPath, finalFeedback, finalFailure), nil
 		}
 
-		judgeResult, err := submitter.Submit(ctx, code)
+		feedback, err := input.JudgeSubmitter.Submit(ctx, previousCode)
 		if err != nil {
-			output.TotalLatencyMS = elapsedMS(startedAt)
-			return output, err
+			return c.buildResult(modelName, lastPromptPreview, lastRawResponse, totalInput, totalOutput, totalLatency, attempts, strategyPath, finalFeedback, finalFailure), err
 		}
-		if judgeResult == nil {
-			judgeResult = &JudgeResult{}
-		}
-
-		classification := c.Classifier.Classify(judgeResult.Verdict)
-		failureType := ""
-		if classification.Repairable {
-			failureType = classification.FailureType
-			lastFailureType = failureType
+		if feedback != nil {
+			attempts[len(attempts)-1].JudgeFeedback = *feedback
+			finalFeedback = feedback
+			finalFailure = classifyJudgeFeedback(feedback)
+			attempts[len(attempts)-1].FailureType = finalFailure
 		}
 
-		stages = append(stages, stage)
-		attempt := AttemptRecord{
-			AttemptNo:      attemptNo,
-			Stage:          stage,
-			Model:          output.Model,
-			PromptPreview:  llmOutput.PromptPreview,
-			RawResponse:    llmOutput.RawResponse,
-			ExtractedCode:  code,
-			Verdict:        judgeResult.Verdict,
-			FailureType:    failureType,
-			RepairReason:   judgeResult.Feedback,
-			TokenInput:     llmOutput.TokenInput,
-			TokenOutput:    llmOutput.TokenOutput,
-			LLMLatencyMS:   llmOutput.LLMLatencyMS,
-			TotalLatencyMS: elapsedMS(startedAt),
-		}
-		if recorder != nil {
-			if err := recorder.RecordAttempt(ctx, attempt); err != nil {
-				output.TotalLatencyMS = elapsedMS(startedAt)
-				return output, err
-			}
-		}
-		output.Attempts = append(output.Attempts, attempt)
-		output.AttemptCount = len(output.Attempts)
-		output.SubmissionID = judgeResult.SubmissionID
-		output.Verdict = judgeResult.Verdict
-		output.ErrorMessage = judgeResult.ErrorMessage
-		output.FailureType = lastFailureType
-		output.StrategyPath = strings.Join(stages, " -> ")
-		output.TotalLatencyMS = elapsedMS(startedAt)
-
-		if judgeResult.Verdict == "AC" {
-			return output, nil
+		if feedback != nil && strings.EqualFold(strings.TrimSpace(feedback.Verdict), "AC") {
+			return c.buildResult(modelName, lastPromptPreview, lastRawResponse, totalInput, totalOutput, totalLatency, attempts, strategyPath, finalFeedback, finalFailure), nil
 		}
 
-		plan, ok := planner.NextRepair(attemptNo, classification)
-		if !ok {
-			return output, nil
+		decision := planner.Next(RepairPlanInput{
+			AttemptCount:   len(attempts),
+			LastFailure:    finalFailure,
+			PreviousStages: strategyPath,
+		})
+		if decision.Stop {
+			return c.buildResult(modelName, lastPromptPreview, lastRawResponse, totalInput, totalOutput, totalLatency, attempts, strategyPath, finalFeedback, finalFailure), nil
 		}
-		stage = plan.Stage
-		previousCode = code
-		feedback = effectiveModel(judgeResult.Feedback, judgeResult.ErrorMessage, judgeResult.Verdict)
+
+		strategyPath = append(strategyPath, decision.Stage)
+		currentStage = decision.Stage
+	}
+}
+
+func (c AdaptiveRepairCoordinator) buildResult(
+	modelName string,
+	promptPreview string,
+	rawResponse string,
+	totalInput int64,
+	totalOutput int64,
+	totalLatency int,
+	attempts []AdaptiveRepairAttempt,
+	strategyPath []string,
+	finalFeedback *JudgeFeedback,
+	finalFailure FailureType,
+) AdaptiveRepairResult {
+	result := AdaptiveRepairResult{
+		SolveOutput: SolveOutput{
+			AgentName:     AdaptiveRepairV1AgentName,
+			Model:         modelName,
+			PromptPreview: promptPreview,
+			RawResponse:   rawResponse,
+			TokenInput:    totalInput,
+			TokenOutput:   totalOutput,
+			LLMLatencyMS:  totalLatency,
+		},
+		AttemptCount: len(attempts),
+		StrategyPath: append([]string(nil), strategyPath...),
+		Attempts:     append([]AdaptiveRepairAttempt(nil), attempts...),
+		FinalFailure: finalFailure,
+	}
+	if finalFeedback != nil {
+		copyFeedback := *finalFeedback
+		result.FinalFeedback = &copyFeedback
+	}
+	return result
+}
+
+func classifyJudgeFeedback(feedback *JudgeFeedback) FailureType {
+	if feedback == nil {
+		return FailureTypeUnknown
+	}
+	return ClassifyFailure(JudgeFailureObservation{
+		Verdict:       feedback.Verdict,
+		TimedOut:      feedback.TimedOut,
+		CompileStderr: feedback.CompileStderr,
+		RunStderr:     feedback.RunStderr,
+		PassedCount:   feedback.PassedCount,
+		TotalCount:    feedback.TotalCount,
+		ExecStage:     feedback.ExecStage,
+	})
+}
+
+func buildAdaptiveRepairPrompt(problem *model.Problem, promptName, stage, previousCode string, feedback *JudgeFeedback) string {
+	feedbackText := renderJudgeFeedback(feedback)
+	switch stage {
+	case RepairStageWAAnalysisRepair:
+		return prompt.BuildWARepairPrompt(problem, promptName, previousCode, feedbackText)
+	case RepairStageRESafetyRepair:
+		return prompt.BuildRERepairPrompt(problem, promptName, previousCode, feedbackText)
+	case RepairStageTLEComplexityRewrite:
+		return prompt.BuildTLERepairPrompt(problem, promptName, previousCode, feedbackText)
+	default:
+		return prompt.BuildRepairPrompt(problem, promptName, previousCode, feedbackText)
+	}
+}
+
+func renderJudgeFeedback(feedback *JudgeFeedback) string {
+	if feedback == nil {
+		return "No judge feedback is available."
 	}
 
-	return output, nil
+	lines := []string{
+		fmt.Sprintf("Verdict: %s", firstNonEmptyString(strings.TrimSpace(feedback.Verdict), "unknown")),
+		fmt.Sprintf("Passed Count: %d / %d", feedback.PassedCount, feedback.TotalCount),
+	}
+	if strings.TrimSpace(feedback.ExecStage) != "" {
+		lines = append(lines, "Execution Stage: "+strings.TrimSpace(feedback.ExecStage))
+	}
+	if feedback.TimedOut {
+		lines = append(lines, "Timed Out: true")
+	}
+	if strings.TrimSpace(feedback.ErrorMessage) != "" {
+		lines = append(lines, "Error Message:\n"+strings.TrimSpace(feedback.ErrorMessage))
+	}
+	if strings.TrimSpace(feedback.CompileStderr) != "" {
+		lines = append(lines, "Compile Stderr:\n"+strings.TrimSpace(feedback.CompileStderr))
+	}
+	if strings.TrimSpace(feedback.RunStderr) != "" {
+		lines = append(lines, "Run Stderr:\n"+strings.TrimSpace(feedback.RunStderr))
+	}
+	if strings.TrimSpace(feedback.RunStdout) != "" {
+		lines = append(lines, "Run Stdout:\n"+strings.TrimSpace(feedback.RunStdout))
+	}
+	return strings.Join(lines, "\n\n")
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+var (
+	cppFencePattern     = regexp.MustCompile("(?is)```(?:cpp|c\\+\\+|cc|cxx)\\s*(.*?)```")
+	genericFencePattern = regexp.MustCompile("(?is)```(?:[a-z0-9_+-]+)?\\s*(.*?)```")
+)
+
+func extractCPPCode(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	if matches := cppFencePattern.FindStringSubmatch(raw); len(matches) >= 2 {
+		return strings.TrimSpace(matches[1])
+	}
+	if matches := genericFencePattern.FindStringSubmatch(raw); len(matches) >= 2 {
+		return strings.TrimSpace(matches[1])
+	}
+	return strings.TrimSpace(strings.Trim(raw, "`"))
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -22,7 +23,7 @@ var (
 )
 
 const defaultAISolveExecutionTimeout = 5 * time.Minute
-const maxAISolveAttempts = 3
+const maxLegacyRepairAttempts = 3
 
 type JudgeSubmitter interface {
 	Submit(ctx context.Context, input JudgeSubmissionInput) (*JudgeSubmissionOutput, error)
@@ -61,17 +62,24 @@ type AISolveOutput struct {
 }
 
 type AISolveAttemptOutput struct {
-	ID             uint   `json:"id"`
-	AttemptNo      int    `json:"attempt_no"`
-	Stage          string `json:"stage"`
-	Model          string `json:"model"`
-	Verdict        string `json:"verdict"`
-	FailureType    string `json:"failure_type"`
-	RepairReason   string `json:"repair_reason"`
-	TokenInput     int64  `json:"token_input"`
-	TokenOutput    int64  `json:"token_output"`
-	LLMLatencyMS   int    `json:"llm_latency_ms"`
-	TotalLatencyMS int    `json:"total_latency_ms"`
+	ID               uint   `json:"id"`
+	AttemptNo        int    `json:"attempt_no"`
+	Stage            string `json:"stage"`
+	Model            string `json:"model"`
+	Verdict          string `json:"verdict"`
+	FailureType      string `json:"failure_type"`
+	RepairReason     string `json:"repair_reason"`
+	StrategyPath     string `json:"strategy_path"`
+	PromptPreview    string `json:"prompt_preview"`
+	ExtractedCode    string `json:"extracted_code"`
+	JudgePassedCount int    `json:"judge_passed_count"`
+	JudgeTotalCount  int    `json:"judge_total_count"`
+	TimedOut         bool   `json:"timed_out"`
+	ErrorMessage     string `json:"error_message"`
+	TokenInput       int64  `json:"token_input"`
+	TokenOutput      int64  `json:"token_output"`
+	LLMLatencyMS     int    `json:"llm_latency_ms"`
+	TotalLatencyMS   int    `json:"total_latency_ms"`
 }
 
 type AISolveService struct {
@@ -92,14 +100,14 @@ func NewAISolveService(
 	defaultModel string,
 	attempts ...repository.AISolveAttemptRepository,
 ) *AISolveService {
-	var attemptRepository repository.AISolveAttemptRepository
+	var attemptRepo repository.AISolveAttemptRepository
 	if len(attempts) > 0 {
-		attemptRepository = attempts[0]
+		attemptRepo = attempts[0]
 	}
 	return &AISolveService{
 		problems:     problems,
 		runs:         runs,
-		attempts:     attemptRepository,
+		attempts:     attemptRepo,
 		llmClient:    llmClient,
 		submissions:  submissions,
 		defaultModel: defaultModel,
@@ -159,132 +167,18 @@ func (s *AISolveService) Solve(ctx context.Context, input AISolveInput) (*AISolv
 	}
 
 	if resolvedAgentName == agent.AdaptiveRepairV1AgentName {
-		return s.solveAdaptiveRepair(solveCtx, input.ProblemID, problem, run, output, startedAt, resolvedModel, resolvedPromptName)
+		return s.solveAdaptiveRepair(solveCtx, run, output, startedAt, problem, resolvedModel, resolvedPromptName, input.ProblemID)
 	}
 
-	strategy, err := agent.ResolveSolveStrategy(resolvedAgentName)
-	if err != nil {
-		return nil, err
-	}
-
-	agentOutput, err := strategy.Execute(solveCtx, s.llmClient, agent.SolveInput{
-		Problem:       problem,
-		Model:         resolvedModel,
-		PromptName:    resolvedPromptName,
-		ToolingRunner: s.newToolingRunner(toolingConfig),
-	})
-	s.applyAttemptLLMOutput(run, output, resolvedModel, resolvedAgentName, agentOutput)
-	if err != nil {
-		return s.failRun(solveCtx, run, output, startedAt, fmt.Sprintf("%v: %v", ErrAISolveLLMFailed, err), fmt.Errorf("%w: %v", ErrAISolveLLMFailed, err))
-	}
-
-	code := agent.ExtractCPPCode(agentOutput.RawResponse)
-	lastJudgeOutput, err := s.submitAttempt(solveCtx, input.ProblemID, code, run, output, startedAt)
-	if err != nil {
-		return output, err
-	}
-	if lastJudgeOutput.Verdict == "AC" {
-		return s.finishRun(run, output, startedAt, lastJudgeOutput)
-	}
-	if !agent.SupportsSelfRepair(resolvedAgentName) {
-		return s.finishRun(run, output, startedAt, lastJudgeOutput)
-	}
-
-	for attempt := 2; attempt <= maxAISolveAttempts; attempt++ {
-		repairPrompt := prompt.BuildRepairPrompt(problem, resolvedPromptName, code, buildRepairFeedback(lastJudgeOutput))
-		llmStartedAt := time.Now()
-		llmResp, llmErr := s.llmClient.Generate(solveCtx, llm.GenerateRequest{
-			Prompt: repairPrompt,
-			Model:  resolvedModel,
-		})
-		repairOutput := agent.SolveOutput{
-			AgentName:     resolvedAgentName,
-			Model:         firstNonEmpty(llmResp.Model, resolvedModel),
-			PromptPreview: repairPrompt,
-			RawResponse:   llmResp.Content,
-			TokenInput:    llmResp.InputTokens,
-			TokenOutput:   llmResp.OutputTokens,
-			LLMLatencyMS:  elapsedMS(llmStartedAt),
-		}
-		s.applyAttemptLLMOutput(run, output, resolvedModel, resolvedAgentName, repairOutput)
-		if llmErr != nil {
-			return s.failRun(solveCtx, run, output, startedAt, fmt.Sprintf("%v: %v", ErrAISolveLLMFailed, llmErr), fmt.Errorf("%w: %v", ErrAISolveLLMFailed, llmErr))
-		}
-
-		code = agent.ExtractCPPCode(llmResp.Content)
-		lastJudgeOutput, err = s.submitAttempt(solveCtx, input.ProblemID, code, run, output, startedAt)
-		if err != nil {
-			return output, err
-		}
-		if lastJudgeOutput.Verdict == "AC" {
-			return s.finishRun(run, output, startedAt, lastJudgeOutput)
-		}
-	}
-
-	return s.finishRun(run, output, startedAt, lastJudgeOutput)
+	return s.solveLegacyAgent(solveCtx, run, output, startedAt, problem, resolvedModel, resolvedPromptName, resolvedAgentName, input.ProblemID, toolingConfig)
 }
 
 func (s *AISolveService) GetRun(ctx context.Context, runID uint) (*model.AISolveRun, error) {
-	return s.runs.GetByID(ctx, runID)
-}
-
-func (s *AISolveService) solveAdaptiveRepair(
-	ctx context.Context,
-	problemID uint,
-	problem *model.Problem,
-	run *model.AISolveRun,
-	output *AISolveOutput,
-	startedAt time.Time,
-	resolvedModel string,
-	resolvedPromptName string,
-) (*AISolveOutput, error) {
-	coordinator := agent.AdaptiveRepairCoordinator{MaxAttempts: maxAISolveAttempts}
-	coordinatorOutput, err := coordinator.Execute(
-		ctx,
-		s.llmClient,
-		agent.SolveInput{
-			Problem:    problem,
-			Model:      resolvedModel,
-			PromptName: resolvedPromptName,
-		},
-		adaptiveAgentJudgeSubmitter{
-			submitter: s.submissions,
-			input: JudgeSubmissionInput{
-				ProblemID:  problemID,
-				Language:   model.LanguageCPP17,
-				SourceType: model.SourceTypeAI,
-			},
-		},
-		aiSolveAttemptRecorder{repo: s.attempts, runID: run.ID},
-	)
-	s.applyAdaptiveCoordinatorOutput(run, output, coordinatorOutput)
+	run, err := s.runs.GetByID(ctx, runID)
 	if err != nil {
-		switch {
-		case errors.Is(err, agent.ErrAdaptiveCodeNotExtracted):
-			return s.failRun(ctx, run, output, startedAt, ErrAISolveCodeNotExtracted.Error(), ErrAISolveCodeNotExtracted)
-		case len(coordinatorOutput.Attempts) == 0:
-			return s.failRun(ctx, run, output, startedAt, fmt.Sprintf("%v: %v", ErrAISolveLLMFailed, err), fmt.Errorf("%w: %v", ErrAISolveLLMFailed, err))
-		default:
-			return s.failRun(ctx, run, output, startedAt, err.Error(), err)
-		}
+		return nil, err
 	}
-
-	run.Status = model.AISolveRunStatusSuccess
-	run.TotalLatencyMS = elapsedMS(startedAt)
-	if run.TotalLatencyMS < coordinatorOutput.TotalLatencyMS {
-		run.TotalLatencyMS = coordinatorOutput.TotalLatencyMS
-	}
-	output.TotalLatencyMS = run.TotalLatencyMS
-	if err := s.persistTerminalRun(run); err != nil {
-		syncAISolveOutputFromRun(output, run)
-		return output, fmt.Errorf("update ai solve run: %w", err)
-	}
-	syncAISolveOutputFromRun(output, run)
-	output.SubmissionID = coordinatorOutput.SubmissionID
-	output.Verdict = coordinatorOutput.Verdict
-	output.ErrorMessage = coordinatorOutput.ErrorMessage
-	output.Attempts = coordinatorAttemptsToOutput(coordinatorOutput.Attempts)
-	return output, nil
+	return run, nil
 }
 
 func (s *AISolveService) failRun(
@@ -297,13 +191,39 @@ func (s *AISolveService) failRun(
 ) (*AISolveOutput, error) {
 	run.Status = model.AISolveRunStatusFailed
 	run.ErrorMessage = message
+	run.SubmissionID = nil
+	run.Verdict = ""
 	run.TotalLatencyMS = elapsedMS(startedAt)
 	if err := s.persistTerminalRun(run); err != nil {
 		syncAISolveOutputFromRun(output, run)
+		output.SubmissionID = 0
+		output.Verdict = ""
 		return output, fmt.Errorf("update ai solve run: %w", err)
 	}
 	syncAISolveOutputFromRun(output, run)
+	output.SubmissionID = 0
+	output.Verdict = ""
 	return output, returnErr
+}
+
+var (
+	cppFencePattern     = regexp.MustCompile("(?is)```(?:cpp|c\\+\\+|cc|cxx)\\s*(.*?)```")
+	genericFencePattern = regexp.MustCompile("(?is)```(?:[a-z0-9_+-]+)?\\s*(.*?)```")
+)
+
+func extractCPPCode(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	if matches := cppFencePattern.FindStringSubmatch(raw); len(matches) >= 2 {
+		return strings.TrimSpace(matches[1])
+	}
+	if matches := genericFencePattern.FindStringSubmatch(raw); len(matches) >= 2 {
+		return strings.TrimSpace(matches[1])
+	}
+	return strings.TrimSpace(strings.Trim(raw, "`"))
 }
 
 func truncateForPreview(value string, limit int) string {
@@ -350,49 +270,6 @@ func (s *AISolveService) newToolingRunner(cfg tooling.Config) *tooling.Runner {
 	return s.toolingRegistry.NewRunner(cfg)
 }
 
-func (s *AISolveService) applyAdaptiveCoordinatorOutput(
-	run *model.AISolveRun,
-	output *AISolveOutput,
-	coordinatorOutput agent.CoordinatorOutput,
-) {
-	run.Model = firstNonEmpty(coordinatorOutput.Model, run.Model)
-	run.AgentName = agent.AdaptiveRepairV1AgentName
-	run.PromptPreview = truncateForPreview(coordinatorOutput.PromptPreview, 800)
-	run.RawResponse = coordinatorOutput.RawResponse
-	run.ExtractedCode = coordinatorOutput.ExtractedCode
-	run.Verdict = coordinatorOutput.Verdict
-	run.ErrorMessage = coordinatorOutput.ErrorMessage
-	run.TokenInput = coordinatorOutput.TokenInput
-	run.TokenOutput = coordinatorOutput.TokenOutput
-	run.LLMLatencyMS = coordinatorOutput.LLMLatencyMS
-	run.TotalLatencyMS = coordinatorOutput.TotalLatencyMS
-	run.AttemptCount = coordinatorOutput.AttemptCount
-	run.FailureType = coordinatorOutput.FailureType
-	run.StrategyPath = coordinatorOutput.StrategyPath
-	if coordinatorOutput.SubmissionID != 0 {
-		run.SubmissionID = &coordinatorOutput.SubmissionID
-	}
-
-	output.Model = run.Model
-	output.AgentName = run.AgentName
-	output.PromptPreview = run.PromptPreview
-	output.RawResponse = truncateForPreview(coordinatorOutput.RawResponse, 4000)
-	output.ExtractedCode = coordinatorOutput.ExtractedCode
-	output.SubmissionID = coordinatorOutput.SubmissionID
-	output.Verdict = coordinatorOutput.Verdict
-	output.ErrorMessage = coordinatorOutput.ErrorMessage
-	output.TokenInput = coordinatorOutput.TokenInput
-	output.TokenOutput = coordinatorOutput.TokenOutput
-	output.LLMLatencyMS = coordinatorOutput.LLMLatencyMS
-	output.TotalLatencyMS = coordinatorOutput.TotalLatencyMS
-	output.AttemptCount = coordinatorOutput.AttemptCount
-	output.FailureType = coordinatorOutput.FailureType
-	output.StrategyPath = coordinatorOutput.StrategyPath
-	output.ToolingConfig = run.ToolingConfig
-	output.ToolCallCount = run.ToolCallCount
-	output.Attempts = coordinatorAttemptsToOutput(coordinatorOutput.Attempts)
-}
-
 func (s *AISolveService) submitAttempt(
 	ctx context.Context,
 	problemID uint,
@@ -401,17 +278,19 @@ func (s *AISolveService) submitAttempt(
 	output *AISolveOutput,
 	startedAt time.Time,
 ) (*JudgeSubmissionOutput, error) {
+	if strings.TrimSpace(code) == "" {
+		return nil, s.wrapFailure(ctx, run, output, startedAt, ErrAISolveCodeNotExtracted.Error(), ErrAISolveCodeNotExtracted)
+	}
+
 	run.ExtractedCode = code
 	output.ExtractedCode = code
 
-	judgeOutput, err := adaptiveJudgeSubmitterAdapter{
-		submitter: s.submissions,
-		input: JudgeSubmissionInput{
-			ProblemID:  problemID,
-			Language:   model.LanguageCPP17,
-			SourceType: model.SourceTypeAI,
-		},
-	}.Submit(ctx, code)
+	judgeOutput, err := s.submissions.Submit(ctx, JudgeSubmissionInput{
+		ProblemID:  problemID,
+		SourceCode: code,
+		Language:   model.LanguageCPP17,
+		SourceType: model.SourceTypeAI,
+	})
 	if err != nil {
 		return nil, s.wrapFailure(ctx, run, output, startedAt, err.Error(), err)
 	}
@@ -419,73 +298,115 @@ func (s *AISolveService) submitAttempt(
 	return judgeOutput, nil
 }
 
-type adaptiveJudgeSubmitterAdapter struct {
-	submitter JudgeSubmitter
-	input     JudgeSubmissionInput
-}
-
-type adaptiveAgentJudgeSubmitter struct {
-	submitter JudgeSubmitter
-	input     JudgeSubmissionInput
-}
-
-func (a adaptiveAgentJudgeSubmitter) Submit(ctx context.Context, sourceCode string) (*agent.JudgeResult, error) {
-	if strings.TrimSpace(sourceCode) == "" {
-		return nil, ErrAISolveCodeNotExtracted
-	}
-
-	input := a.input
-	input.SourceCode = sourceCode
-	output, err := a.submitter.Submit(ctx, input)
+func (s *AISolveService) solveLegacyAgent(
+	ctx context.Context,
+	run *model.AISolveRun,
+	output *AISolveOutput,
+	startedAt time.Time,
+	problem *model.Problem,
+	resolvedModel string,
+	resolvedPromptName string,
+	resolvedAgentName string,
+	problemID uint,
+	toolingConfig tooling.Config,
+) (*AISolveOutput, error) {
+	strategy, err := agent.ResolveSolveStrategy(resolvedAgentName)
 	if err != nil {
 		return nil, err
 	}
-	if output == nil {
-		return &agent.JudgeResult{}, nil
-	}
-	return &agent.JudgeResult{
-		SubmissionID: output.SubmissionID,
-		Verdict:      output.Verdict,
-		ErrorMessage: output.ErrorMessage,
-		Feedback:     buildRepairFeedback(output),
-	}, nil
-}
 
-type aiSolveAttemptRecorder struct {
-	repo  repository.AISolveAttemptRepository
-	runID uint
-}
-
-func (r aiSolveAttemptRecorder) RecordAttempt(ctx context.Context, attempt agent.AttemptRecord) error {
-	if r.repo == nil {
-		return nil
-	}
-	return r.repo.Create(ctx, &model.AISolveAttempt{
-		AISolveRunID:   r.runID,
-		AttemptNo:      attempt.AttemptNo,
-		Stage:          attempt.Stage,
-		Model:          attempt.Model,
-		PromptPreview:  truncateForPreview(attempt.PromptPreview, 800),
-		RawResponse:    attempt.RawResponse,
-		ExtractedCode:  attempt.ExtractedCode,
-		Verdict:        attempt.Verdict,
-		FailureType:    attempt.FailureType,
-		RepairReason:   attempt.RepairReason,
-		TokenInput:     attempt.TokenInput,
-		TokenOutput:    attempt.TokenOutput,
-		LLMLatencyMS:   attempt.LLMLatencyMS,
-		TotalLatencyMS: attempt.TotalLatencyMS,
+	agentOutput, err := strategy.Execute(ctx, s.llmClient, agent.SolveInput{
+		Problem:       problem,
+		Model:         resolvedModel,
+		PromptName:    resolvedPromptName,
+		ToolingRunner: s.newToolingRunner(toolingConfig),
 	})
-}
-
-func (a adaptiveJudgeSubmitterAdapter) Submit(ctx context.Context, sourceCode string) (*JudgeSubmissionOutput, error) {
-	if strings.TrimSpace(sourceCode) == "" {
-		return nil, ErrAISolveCodeNotExtracted
+	s.applyAttemptLLMOutput(run, output, resolvedModel, resolvedAgentName, agentOutput)
+	if err != nil {
+		return s.failRun(ctx, run, output, startedAt, fmt.Sprintf("%v: %v", ErrAISolveLLMFailed, err), fmt.Errorf("%w: %v", ErrAISolveLLMFailed, err))
 	}
 
-	input := a.input
-	input.SourceCode = sourceCode
-	return a.submitter.Submit(ctx, input)
+	code := extractCPPCode(agentOutput.RawResponse)
+	lastJudgeOutput, err := s.submitAttempt(ctx, problemID, code, run, output, startedAt)
+	if err != nil {
+		return output, err
+	}
+	if lastJudgeOutput.Verdict == "AC" {
+		return s.finishRun(run, output, startedAt, lastJudgeOutput)
+	}
+	if resolvedAgentName != agent.DirectCodegenRepairAgentName {
+		return s.finishRun(run, output, startedAt, lastJudgeOutput)
+	}
+
+	for attempt := 2; attempt <= maxLegacyRepairAttempts; attempt++ {
+		repairPrompt := prompt.BuildRepairPrompt(problem, resolvedPromptName, code, buildRepairFeedback(lastJudgeOutput))
+		llmStartedAt := time.Now()
+		llmResp, llmErr := s.llmClient.Generate(ctx, llm.GenerateRequest{
+			Prompt: repairPrompt,
+			Model:  resolvedModel,
+		})
+		repairOutput := agent.SolveOutput{
+			AgentName:     resolvedAgentName,
+			Model:         firstNonEmpty(llmResp.Model, resolvedModel),
+			PromptPreview: repairPrompt,
+			RawResponse:   llmResp.Content,
+			TokenInput:    llmResp.InputTokens,
+			TokenOutput:   llmResp.OutputTokens,
+			LLMLatencyMS:  elapsedMS(llmStartedAt),
+		}
+		s.applyAttemptLLMOutput(run, output, resolvedModel, resolvedAgentName, repairOutput)
+		if llmErr != nil {
+			return s.failRun(ctx, run, output, startedAt, fmt.Sprintf("%v: %v", ErrAISolveLLMFailed, llmErr), fmt.Errorf("%w: %v", ErrAISolveLLMFailed, llmErr))
+		}
+
+		code = extractCPPCode(llmResp.Content)
+		lastJudgeOutput, err = s.submitAttempt(ctx, problemID, code, run, output, startedAt)
+		if err != nil {
+			return output, err
+		}
+		if lastJudgeOutput.Verdict == "AC" {
+			return s.finishRun(run, output, startedAt, lastJudgeOutput)
+		}
+	}
+
+	return s.finishRun(run, output, startedAt, lastJudgeOutput)
+}
+
+func (s *AISolveService) solveAdaptiveRepair(
+	ctx context.Context,
+	run *model.AISolveRun,
+	output *AISolveOutput,
+	startedAt time.Time,
+	problem *model.Problem,
+	resolvedModel string,
+	resolvedPromptName string,
+	problemID uint,
+) (*AISolveOutput, error) {
+	adapter := &adaptiveJudgeSubmitterAdapter{
+		submitter: s.submissions,
+		problemID: problemID,
+	}
+
+	result, err := agent.NewAdaptiveRepairCoordinator(agent.DefaultAdaptiveRepairMaxAttempts).Execute(ctx, s.llmClient, agent.SolveInput{
+		Problem:        problem,
+		Model:          resolvedModel,
+		PromptName:     resolvedPromptName,
+		JudgeSubmitter: adapter,
+	})
+
+	var judgeOutput *JudgeSubmissionOutput
+	if err == nil {
+		judgeOutput = adapter.lastOutput()
+	}
+	s.applyAdaptiveResult(run, output, result, judgeOutput, startedAt)
+	if persistErr := s.persistAdaptiveAttempts(ctx, run.ID, result.StrategyPath, result.Attempts); persistErr != nil {
+		return s.failRun(ctx, run, output, startedAt, persistErr.Error(), persistErr)
+	}
+	if err != nil {
+		return s.failRun(ctx, run, output, startedAt, err.Error(), err)
+	}
+
+	return s.finishRun(run, output, startedAt, adapter.lastOutput())
 }
 
 func (s *AISolveService) finishRun(
@@ -512,6 +433,118 @@ func (s *AISolveService) finishRun(
 	output.Verdict = judgeOutput.Verdict
 	output.ErrorMessage = judgeOutput.ErrorMessage
 	return output, nil
+}
+
+func (s *AISolveService) applyAdaptiveResult(
+	run *model.AISolveRun,
+	output *AISolveOutput,
+	result agent.AdaptiveRepairResult,
+	judgeOutput *JudgeSubmissionOutput,
+	startedAt time.Time,
+) {
+	run.Model = result.SolveOutput.Model
+	run.AgentName = agent.DisplaySolveAgentName(result.SolveOutput.AgentName)
+	run.PromptPreview = truncateForPreview(result.SolveOutput.PromptPreview, 800)
+	run.RawResponse = result.SolveOutput.RawResponse
+	run.ExtractedCode = extractCPPCode(result.SolveOutput.RawResponse)
+	run.AttemptCount = result.AttemptCount
+	run.FailureType = adaptiveRunFailureType(result, judgeOutput)
+	run.StrategyPath = strings.Join(result.StrategyPath, ",")
+	run.TokenInput = result.SolveOutput.TokenInput
+	run.TokenOutput = result.SolveOutput.TokenOutput
+	run.LLMLatencyMS = result.SolveOutput.LLMLatencyMS
+	run.TotalLatencyMS = elapsedMS(startedAt)
+	run.SubmissionID = nil
+	run.Verdict = ""
+	run.ErrorMessage = ""
+	if judgeOutput != nil {
+		run.SubmissionID = &judgeOutput.SubmissionID
+		run.Verdict = judgeOutput.Verdict
+		run.ErrorMessage = judgeOutput.ErrorMessage
+	}
+
+	syncAISolveOutputFromRun(output, run)
+	output.RawResponse = truncateForPreview(result.SolveOutput.RawResponse, 4000)
+	output.ExtractedCode = run.ExtractedCode
+	output.SubmissionID = 0
+	output.Verdict = ""
+	output.ErrorMessage = ""
+	if judgeOutput != nil {
+		output.SubmissionID = judgeOutput.SubmissionID
+		output.Verdict = judgeOutput.Verdict
+		output.ErrorMessage = judgeOutput.ErrorMessage
+	}
+	output.Attempts = adaptiveAttemptsToOutput(result.StrategyPath, result.Attempts)
+}
+
+func adaptiveRunFailureType(result agent.AdaptiveRepairResult, judgeOutput *JudgeSubmissionOutput) string {
+	if judgeOutput != nil && strings.EqualFold(strings.TrimSpace(judgeOutput.Verdict), "AC") {
+		if failure := lastMeaningfulAdaptiveFailure(result.Attempts); failure != "" {
+			return failure
+		}
+	}
+
+	if failure := strings.TrimSpace(string(result.FinalFailure)); failure != "" {
+		return failure
+	}
+	return string(agent.FailureTypeUnknown)
+}
+
+func lastMeaningfulAdaptiveFailure(attempts []agent.AdaptiveRepairAttempt) string {
+	for i := len(attempts) - 1; i >= 0; i-- {
+		failure := strings.TrimSpace(string(attempts[i].FailureType))
+		if failure == "" || failure == string(agent.FailureTypeUnknown) {
+			continue
+		}
+		return failure
+	}
+	return ""
+}
+
+func (s *AISolveService) persistAdaptiveAttempts(
+	_ context.Context,
+	runID uint,
+	strategyPath []string,
+	attempts []agent.AdaptiveRepairAttempt,
+) error {
+	if s.attempts == nil {
+		return nil
+	}
+
+	updateCtx, cancel := terminalPersistenceContext()
+	defer cancel()
+
+	for _, attempt := range attempts {
+		record := &model.AISolveAttempt{
+			AISolveRunID:     runID,
+			AttemptNo:        attempt.AttemptNo,
+			Stage:            attempt.Stage,
+			Model:            attempt.Model,
+			FailureType:      string(attempt.FailureType),
+			StrategyPath:     strategyPathForAttempt(strategyPath, attempt.AttemptNo),
+			RepairReason:     repairReasonFromJudgeFeedback(attempt.JudgeFeedback),
+			PromptPreview:    truncateForPreview(attempt.PromptPreview, 800),
+			RawResponse:      attempt.RawResponse,
+			ExtractedCode:    extractCPPCode(attempt.RawResponse),
+			JudgeVerdict:     attempt.JudgeFeedback.Verdict,
+			JudgePassedCount: attempt.JudgeFeedback.PassedCount,
+			JudgeTotalCount:  attempt.JudgeFeedback.TotalCount,
+			TimedOut:         attempt.JudgeFeedback.TimedOut,
+			CompileStderr:    attempt.JudgeFeedback.CompileStderr,
+			RunStderr:        attempt.JudgeFeedback.RunStderr,
+			RunStdout:        attempt.JudgeFeedback.RunStdout,
+			ErrorMessage:     attempt.JudgeFeedback.ErrorMessage,
+			TokenInput:       attempt.TokenInput,
+			TokenOutput:      attempt.TokenOutput,
+			LLMLatencyMS:     attempt.LLMLatencyMS,
+			TotalLatencyMS:   attempt.LLMLatencyMS,
+		}
+		if err := s.attempts.Create(updateCtx, record); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (s *AISolveService) wrapFailure(
@@ -582,23 +615,112 @@ func buildRepairFeedback(output *JudgeSubmissionOutput) string {
 	return strings.Join(parts, "\n\n")
 }
 
-func coordinatorAttemptsToOutput(attempts []agent.AttemptRecord) []AISolveAttemptOutput {
+type adaptiveJudgeSubmitterAdapter struct {
+	submitter JudgeSubmitter
+	problemID uint
+	lastJudge *JudgeSubmissionOutput
+}
+
+func (a *adaptiveJudgeSubmitterAdapter) Submit(ctx context.Context, sourceCode string) (*agent.JudgeFeedback, error) {
+	if a == nil || a.submitter == nil {
+		return nil, errors.New("judge submitter is required")
+	}
+	sourceCode = strings.TrimSpace(sourceCode)
+	if sourceCode == "" {
+		return nil, ErrAISolveCodeNotExtracted
+	}
+
+	output, err := a.submitter.Submit(ctx, JudgeSubmissionInput{
+		ProblemID:  a.problemID,
+		SourceCode: sourceCode,
+		Language:   model.LanguageCPP17,
+		SourceType: model.SourceTypeAI,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	a.lastJudge = output
+	return judgeFeedbackFromSubmission(output), nil
+}
+
+func (a *adaptiveJudgeSubmitterAdapter) lastOutput() *JudgeSubmissionOutput {
+	if a == nil || a.lastJudge == nil {
+		return nil
+	}
+	copy := *a.lastJudge
+	return &copy
+}
+
+func judgeFeedbackFromSubmission(output *JudgeSubmissionOutput) *agent.JudgeFeedback {
+	if output == nil {
+		return nil
+	}
+	return &agent.JudgeFeedback{
+		Verdict:       output.Verdict,
+		TimedOut:      output.TimedOut,
+		CompileStderr: output.CompileStderr,
+		RunStdout:     output.RunStdout,
+		RunStderr:     output.RunStderr,
+		ErrorMessage:  output.ErrorMessage,
+		PassedCount:   output.PassedCount,
+		TotalCount:    output.TotalCount,
+		ExecStage:     output.ExecStage,
+	}
+}
+
+func strategyPathForAttempt(strategyPath []string, attemptNo int) string {
+	if attemptNo <= 1 {
+		return ""
+	}
+
+	limit := attemptNo - 1
+	if limit > len(strategyPath) {
+		limit = len(strategyPath)
+	}
+	if limit <= 0 {
+		return ""
+	}
+
+	stages := make([]string, 0, limit)
+	for i := 0; i < limit && i < len(strategyPath); i++ {
+		stage := strings.TrimSpace(strategyPath[i])
+		if stage == "" {
+			continue
+		}
+		stages = append(stages, stage)
+	}
+	return strings.Join(stages, ",")
+}
+
+func repairReasonFromJudgeFeedback(feedback agent.JudgeFeedback) string {
+	return firstNonEmpty(feedback.ErrorMessage, feedback.CompileStderr, feedback.RunStderr, feedback.RunStdout, feedback.Verdict)
+}
+
+func adaptiveAttemptsToOutput(strategyPath []string, attempts []agent.AdaptiveRepairAttempt) []AISolveAttemptOutput {
 	if len(attempts) == 0 {
 		return nil
 	}
 	outputs := make([]AISolveAttemptOutput, 0, len(attempts))
 	for _, attempt := range attempts {
 		outputs = append(outputs, AISolveAttemptOutput{
-			AttemptNo:      attempt.AttemptNo,
-			Stage:          attempt.Stage,
-			Model:          attempt.Model,
-			Verdict:        attempt.Verdict,
-			FailureType:    attempt.FailureType,
-			RepairReason:   attempt.RepairReason,
-			TokenInput:     attempt.TokenInput,
-			TokenOutput:    attempt.TokenOutput,
-			LLMLatencyMS:   attempt.LLMLatencyMS,
-			TotalLatencyMS: attempt.TotalLatencyMS,
+			AttemptNo:        attempt.AttemptNo,
+			Stage:            attempt.Stage,
+			Model:            attempt.Model,
+			Verdict:          attempt.JudgeFeedback.Verdict,
+			FailureType:      string(attempt.FailureType),
+			RepairReason:     repairReasonFromJudgeFeedback(attempt.JudgeFeedback),
+			StrategyPath:     strategyPathForAttempt(strategyPath, attempt.AttemptNo),
+			PromptPreview:    truncateForPreview(attempt.PromptPreview, 800),
+			ExtractedCode:    extractCPPCode(attempt.RawResponse),
+			JudgePassedCount: attempt.JudgeFeedback.PassedCount,
+			JudgeTotalCount:  attempt.JudgeFeedback.TotalCount,
+			TimedOut:         attempt.JudgeFeedback.TimedOut,
+			ErrorMessage:     attempt.JudgeFeedback.ErrorMessage,
+			TokenInput:       attempt.TokenInput,
+			TokenOutput:      attempt.TokenOutput,
+			LLMLatencyMS:     attempt.LLMLatencyMS,
+			TotalLatencyMS:   attempt.LLMLatencyMS,
 		})
 	}
 	return outputs
@@ -611,17 +733,24 @@ func modelAttemptsToOutput(attempts []model.AISolveAttempt) []AISolveAttemptOutp
 	outputs := make([]AISolveAttemptOutput, 0, len(attempts))
 	for _, attempt := range attempts {
 		outputs = append(outputs, AISolveAttemptOutput{
-			ID:             attempt.ID,
-			AttemptNo:      attempt.AttemptNo,
-			Stage:          attempt.Stage,
-			Model:          attempt.Model,
-			Verdict:        attempt.Verdict,
-			FailureType:    attempt.FailureType,
-			RepairReason:   attempt.RepairReason,
-			TokenInput:     attempt.TokenInput,
-			TokenOutput:    attempt.TokenOutput,
-			LLMLatencyMS:   attempt.LLMLatencyMS,
-			TotalLatencyMS: attempt.TotalLatencyMS,
+			ID:               attempt.ID,
+			AttemptNo:        attempt.AttemptNo,
+			Stage:            attempt.Stage,
+			Model:            attempt.Model,
+			Verdict:          firstNonEmpty(attempt.JudgeVerdict, attempt.FailureType),
+			FailureType:      attempt.FailureType,
+			RepairReason:     attempt.RepairReason,
+			StrategyPath:     attempt.StrategyPath,
+			PromptPreview:    attempt.PromptPreview,
+			ExtractedCode:    attempt.ExtractedCode,
+			JudgePassedCount: attempt.JudgePassedCount,
+			JudgeTotalCount:  attempt.JudgeTotalCount,
+			TimedOut:         attempt.TimedOut,
+			ErrorMessage:     attempt.ErrorMessage,
+			TokenInput:       attempt.TokenInput,
+			TokenOutput:      attempt.TokenOutput,
+			LLMLatencyMS:     attempt.LLMLatencyMS,
+			TotalLatencyMS:   attempt.TotalLatencyMS,
 		})
 	}
 	return outputs
@@ -649,10 +778,14 @@ func (s *AISolveService) persistTerminalRun(run *model.AISolveRun) error {
 		return nil
 	}
 
-	updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	updateCtx, cancel := terminalPersistenceContext()
 	defer cancel()
 
 	return s.runs.Update(updateCtx, run)
+}
+
+func terminalPersistenceContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 5*time.Second)
 }
 
 func syncAISolveOutputFromRun(output *AISolveOutput, run *model.AISolveRun) {

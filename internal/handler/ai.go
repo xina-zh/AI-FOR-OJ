@@ -149,17 +149,24 @@ func toAISolveAttemptResponses(attempts []service.AISolveAttemptOutput) []dto.AI
 	responses := make([]dto.AISolveAttemptResponse, 0, len(attempts))
 	for _, attempt := range attempts {
 		responses = append(responses, dto.AISolveAttemptResponse{
-			ID:             attempt.ID,
-			AttemptNo:      attempt.AttemptNo,
-			Stage:          attempt.Stage,
-			Model:          attempt.Model,
-			Verdict:        attempt.Verdict,
-			FailureType:    attempt.FailureType,
-			RepairReason:   attempt.RepairReason,
-			TokenInput:     attempt.TokenInput,
-			TokenOutput:    attempt.TokenOutput,
-			LLMLatencyMS:   attempt.LLMLatencyMS,
-			TotalLatencyMS: attempt.TotalLatencyMS,
+			ID:               attempt.ID,
+			AttemptNo:        attempt.AttemptNo,
+			Stage:            attempt.Stage,
+			Model:            attempt.Model,
+			Verdict:          attempt.Verdict,
+			FailureType:      attempt.FailureType,
+			RepairReason:     attempt.RepairReason,
+			StrategyPath:     attempt.StrategyPath,
+			PromptPreview:    attempt.PromptPreview,
+			ExtractedCode:    attempt.ExtractedCode,
+			JudgePassedCount: attempt.JudgePassedCount,
+			JudgeTotalCount:  attempt.JudgeTotalCount,
+			TimedOut:         attempt.TimedOut,
+			ErrorMessage:     attempt.ErrorMessage,
+			TokenInput:       attempt.TokenInput,
+			TokenOutput:      attempt.TokenOutput,
+			LLMLatencyMS:     attempt.LLMLatencyMS,
+			TotalLatencyMS:   attempt.TotalLatencyMS,
 		})
 	}
 	return responses
@@ -172,17 +179,24 @@ func toModelAISolveAttemptResponses(attempts []model.AISolveAttempt) []dto.AISol
 	responses := make([]dto.AISolveAttemptResponse, 0, len(attempts))
 	for _, attempt := range attempts {
 		responses = append(responses, dto.AISolveAttemptResponse{
-			ID:             attempt.ID,
-			AttemptNo:      attempt.AttemptNo,
-			Stage:          attempt.Stage,
-			Model:          attempt.Model,
-			Verdict:        attempt.Verdict,
-			FailureType:    attempt.FailureType,
-			RepairReason:   attempt.RepairReason,
-			TokenInput:     attempt.TokenInput,
-			TokenOutput:    attempt.TokenOutput,
-			LLMLatencyMS:   attempt.LLMLatencyMS,
-			TotalLatencyMS: attempt.TotalLatencyMS,
+			ID:               attempt.ID,
+			AttemptNo:        attempt.AttemptNo,
+			Stage:            attempt.Stage,
+			Model:            attempt.Model,
+			Verdict:          attempt.JudgeVerdict,
+			FailureType:      attempt.FailureType,
+			RepairReason:     attempt.RepairReason,
+			StrategyPath:     attempt.StrategyPath,
+			PromptPreview:    attempt.PromptPreview,
+			ExtractedCode:    attempt.ExtractedCode,
+			JudgePassedCount: attempt.JudgePassedCount,
+			JudgeTotalCount:  attempt.JudgeTotalCount,
+			TimedOut:         attempt.TimedOut,
+			ErrorMessage:     attempt.ErrorMessage,
+			TokenInput:       attempt.TokenInput,
+			TokenOutput:      attempt.TokenOutput,
+			LLMLatencyMS:     attempt.LLMLatencyMS,
+			TotalLatencyMS:   attempt.TotalLatencyMS,
 		})
 	}
 	return responses
