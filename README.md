@@ -223,7 +223,7 @@ python3 scripts/import_problems.py --dir ./problems/ready
 - stronger sandbox / 更严格隔离
 - special judge
 - 通用 benchmark 分析平台
-- 前端页面与可视化展示
+- 完整前端页面与可视化展示
 
 ## 当前数据库迁移策略
 
@@ -246,23 +246,60 @@ python3 scripts/import_problems.py --dir ./problems/ready
 
 ## 本地启动
 
-1. 启动依赖：
+### Docker Compose 开发栈
+
+启动 AI-For-OJ 后端、MySQL 和前端：
+
+```bash
+./scripts/dev_up.sh
+```
+
+也可以直接运行：
+
+```bash
+docker compose up -d
+```
+
+启动后访问：
+
+- 后端健康检查：`http://127.0.0.1:8080/health`
+- 前端控制台：`http://127.0.0.1:5188`
+
+AI-For-OJ 前端固定使用 `5188`，避免和 XCPC-Training-Agent 的 `5173` 冲突。
+
+如果修改了后端镜像构建内容，可按需重新构建：
+
+```bash
+docker compose up -d --build
+```
+
+### 后端单独启动
+
+仅调试后端时，可以只启动依赖：
 
 ```bash
 docker compose up -d mysql
 ```
 
-2. 启动服务：
+再启动服务：
 
 ```bash
 go run ./cmd/server
 ```
 
-3. 健康检查：
+健康检查：
 
 ```bash
 curl --noproxy '*' -sS http://127.0.0.1:8080/health
 ```
+
+后端单独启动不会启动前端。
+
+### 与 XCPC-Training-Agent 的端口关系
+
+XCPC-Training-Agent 的前端通常使用 `5173`。AI-For-OJ 的前端固定使用 `5188`，两个项目可以同时运行。
+
+如果不希望旧的 XCPC-Training-Agent 容器自动恢复，需要在 Docker 运行时关闭它们的 restart policy；这不是 AI-For-OJ 仓库配置的一部分。
 
 如果要走真实判题链路，需要提前准备：
 
