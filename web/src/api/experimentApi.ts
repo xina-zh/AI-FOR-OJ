@@ -1,84 +1,92 @@
-import type { ApiClient } from './client';
-import { createApiClient } from './client';
-import type {
-  AISolveRun,
-  AISolveRequest,
-  CompareExperimentRequest,
-  CreateProblemRequest,
-  CreateTestCaseRequest,
-  Experiment,
-  ExperimentCompare,
-  ExperimentOptions,
-  ExperimentRepeat,
-  ExperimentRunTrace,
-  Page,
-  Problem,
-  RepeatExperimentRequest,
-  RunExperimentRequest,
-  Submission,
-  TestCase,
-} from './types';
+import { jsonBody, request } from './http';
+import type { CompareExperiment, Experiment, Page, RepeatExperiment } from './types';
 
-export function createExperimentApi(client: ApiClient = createApiClient()) {
-  return {
-    getExperimentOptions() {
-      return client.get<ExperimentOptions>('/meta/experiment-options');
-    },
-    listProblems() {
-      return client.get<Problem[]>('/problems');
-    },
-    getProblem(id: number) {
-      return client.get<Problem>(`/problems/${id}`);
-    },
-    createProblem(input: CreateProblemRequest) {
-      return client.post<Problem, CreateProblemRequest>('/problems', input);
-    },
-    listTestCases(problemID: number) {
-      return client.get<TestCase[]>(`/problems/${problemID}/testcases`);
-    },
-    createTestCase(problemID: number, input: CreateTestCaseRequest) {
-      return client.post<TestCase, CreateTestCaseRequest>(`/problems/${problemID}/testcases`, input);
-    },
-    listSubmissions(page = 1, pageSize = 20) {
-      return client.get<Page<Submission>>(`/submissions?page=${page}&page_size=${pageSize}`);
-    },
-    solveAI(input: AISolveRequest) {
-      return client.post<AISolveRun, AISolveRequest>('/ai/solve', input);
-    },
-    getAISolveRun(id: number) {
-      return client.get<AISolveRun>(`/ai/solve-runs/${id}`);
-    },
-    runExperiment(input: RunExperimentRequest) {
-      return client.post<Experiment, RunExperimentRequest>('/experiments/run', input);
-    },
-    listExperiments(page = 1, pageSize = 20) {
-      return client.get<Page<Experiment>>(`/experiments?page=${page}&page_size=${pageSize}`);
-    },
-    getExperiment(id: number) {
-      return client.get<Experiment>(`/experiments/${id}`);
-    },
-    listCompares(page = 1, pageSize = 20) {
-      return client.get<Page<ExperimentCompare>>(`/experiments/compare?page=${page}&page_size=${pageSize}`);
-    },
-    getCompare(id: number) {
-      return client.get<ExperimentCompare>(`/experiments/compare/${id}`);
-    },
-    compareExperiments(input: CompareExperimentRequest) {
-      return client.post<ExperimentCompare, CompareExperimentRequest>('/experiments/compare', input);
-    },
-    listRepeats(page = 1, pageSize = 20) {
-      return client.get<Page<ExperimentRepeat>>(`/experiments/repeat?page=${page}&page_size=${pageSize}`);
-    },
-    getRepeat(id: number) {
-      return client.get<ExperimentRepeat>(`/experiments/repeat/${id}`);
-    },
-    repeatExperiment(input: RepeatExperimentRequest) {
-      return client.post<ExperimentRepeat, RepeatExperimentRequest>('/experiments/repeat', input);
-    },
-    getExperimentRunTrace(id: number) {
-      return client.get<ExperimentRunTrace>(`/experiment-runs/${id}/trace`);
-    },
-  };
+interface PageInput {
+  page?: number;
+  pageSize?: number;
 }
 
-export const experimentApi = createExperimentApi();
+export interface RunExperimentRequest {
+  name: string;
+  problem_ids: number[];
+  model: string;
+  prompt_name: string;
+  agent_name: string;
+}
+
+export interface CompareExperimentRequest {
+  name: string;
+  problem_ids: number[];
+  baseline_model: string;
+  candidate_model: string;
+  baseline_prompt_name: string;
+  candidate_prompt_name: string;
+  baseline_agent_name: string;
+  candidate_agent_name: string;
+}
+
+export interface RepeatExperimentRequest {
+  name: string;
+  problem_ids: number[];
+  model: string;
+  prompt_name: string;
+  agent_name: string;
+  repeat_count: number;
+}
+
+export function listExperiments(input: PageInput = {}) {
+  return request<Page<Experiment>>(`/api/v1/experiments${pageQuery(input)}`);
+}
+
+export function getExperiment(experimentId: number) {
+  return request<Experiment>(`/api/v1/experiments/${experimentId}`);
+}
+
+export function runExperiment(input: RunExperimentRequest) {
+  return request<Experiment>('/api/v1/experiments/run', {
+    method: 'POST',
+    body: jsonBody(input),
+  });
+}
+
+export function listCompares(input: PageInput = {}) {
+  return request<Page<CompareExperiment>>(`/api/v1/experiments/compare${pageQuery(input)}`);
+}
+
+export function getCompare(compareId: number) {
+  return request<CompareExperiment>(`/api/v1/experiments/compare/${compareId}`);
+}
+
+export function compareExperiments(input: CompareExperimentRequest) {
+  return request<CompareExperiment>('/api/v1/experiments/compare', {
+    method: 'POST',
+    body: jsonBody(input),
+  });
+}
+
+export function listRepeats(input: PageInput = {}) {
+  return request<Page<RepeatExperiment>>(`/api/v1/experiments/repeat${pageQuery(input)}`);
+}
+
+export function getRepeat(repeatId: number) {
+  return request<RepeatExperiment>(`/api/v1/experiments/repeat/${repeatId}`);
+}
+
+export function repeatExperiment(input: RepeatExperimentRequest) {
+  return request<RepeatExperiment>('/api/v1/experiments/repeat', {
+    method: 'POST',
+    body: jsonBody(input),
+  });
+}
+
+function pageQuery(input: PageInput) {
+  const params = new URLSearchParams();
+  if (input.page) {
+    params.set('page', String(input.page));
+  }
+  if (input.pageSize) {
+    params.set('page_size', String(input.pageSize));
+  }
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}

@@ -1,11 +1,13 @@
 {
   "compilerOptions": {
-    "composite": true,
-    "skipLibCheck": true,
+    "target": "ES2022",
+    "lib": ["ES2022"],
     "module": "ESNext",
+    "skipLibCheck": true,
     "moduleResolution": "Bundler",
     "allowSyntheticDefaultImports": true,
+    "strict": true,
     "noEmit": true
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts", "playwright.config.ts"]
 }

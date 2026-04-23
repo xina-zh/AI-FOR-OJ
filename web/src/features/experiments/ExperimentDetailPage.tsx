@@ -1,35 +1,37 @@
 import { useQuery } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
-import { experimentApi } from '../../api/experimentApi';
-import { DataTable } from '../../components/DataTable';
-import { StatusBadge } from '../../components/StatusBadge';
-import { CostStrip, DetailLink, DistributionStrip, ErrorBlock, LoadingBlock, PageHeader } from '../shared';
+import { getExperiment } from '../../api/experimentApi';
+import { ErrorPanel } from '../../components/ui/ErrorPanel';
+import { LoadingBlock } from '../../components/ui/LoadingBlock';
+import { ExperimentResultPanel } from './ExperimentResultPanel';
 
 export function ExperimentDetailPage() {
-  const id = Number(useParams().id);
-  const query = useQuery({ queryKey: ['experiment', id], queryFn: () => experimentApi.getExperiment(id), enabled: Number.isFinite(id) });
+  const experimentId = Number(useParams().id);
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['experiment', experimentId],
+    queryFn: () => getExperiment(experimentId),
+    enabled: Number.isFinite(experimentId) && experimentId > 0,
+  });
 
-  if (query.isLoading) return <LoadingBlock />;
-  if (query.error) return <ErrorBlock error={query.error} />;
-  const experiment = query.data;
-  if (!experiment) return null;
+  if (isLoading) return <LoadingBlock label="加载 experiment" />;
+  if (error) return <ErrorPanel error={error} />;
+  if (!data) return null;
 
   return (
-    <section className="route-panel">
-      <PageHeader eyebrow="Experiment Detail" title={experiment.name} />
-      <DistributionStrip distribution={experiment.verdict_distribution} />
-      <CostStrip summary={experiment.cost_summary} />
-      <DataTable
-        rows={experiment.runs}
-        getRowKey={(row) => row.id}
-        columns={[
-          { key: 'problem', header: 'Problem', render: (row) => row.problem_id },
-          { key: 'verdict', header: 'Verdict', render: (row) => <StatusBadge value={row.verdict || row.status} /> },
-          { key: 'solve', header: 'AI Run', render: (row) => row.ai_solve_run_id ?? '-' },
-          { key: 'trace', header: 'Trace', render: (row) => <DetailLink to={`/trace/experiment-runs/${row.id}`}>Open</DetailLink> },
-        ]}
-      />
+    <section className="page-section">
+      <div className="page-heading">
+        <div>
+          <h1>{data.name}</h1>
+          <p>
+            {data.model} · {data.prompt_name} · {data.agent_name}
+          </p>
+        </div>
+        <Link className="button button-secondary" to="/experiments">
+          返回实验
+        </Link>
+      </div>
+      <ExperimentResultPanel experiment={data} />
     </section>
   );
 }

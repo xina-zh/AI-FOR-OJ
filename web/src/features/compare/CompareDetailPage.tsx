@@ -1,45 +1,37 @@
 import { useQuery } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
-import { experimentApi } from '../../api/experimentApi';
-import { DataTable } from '../../components/DataTable';
-import { StatusBadge } from '../../components/StatusBadge';
-import { CostStrip, DistributionStrip, ErrorBlock, LoadingBlock, PageHeader } from '../shared';
+import { getCompare } from '../../api/experimentApi';
+import { ErrorPanel } from '../../components/ui/ErrorPanel';
+import { LoadingBlock } from '../../components/ui/LoadingBlock';
+import { CompareResultPanel } from './CompareResultPanel';
 
 export function CompareDetailPage() {
-  const id = Number(useParams().id);
-  const query = useQuery({ queryKey: ['compare', id], queryFn: () => experimentApi.getCompare(id), enabled: Number.isFinite(id) });
-  if (query.isLoading) return <LoadingBlock />;
-  if (query.error) return <ErrorBlock error={query.error} />;
-  const compare = query.data;
-  if (!compare) return null;
+  const compareId = Number(useParams().id);
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['compare', compareId],
+    queryFn: () => getCompare(compareId),
+    enabled: Number.isFinite(compareId) && compareId > 0,
+  });
+
+  if (isLoading) return <LoadingBlock label="加载 compare" />;
+  if (error) return <ErrorPanel error={error} />;
+  if (!data) return null;
 
   return (
-    <section className="route-panel">
-      <PageHeader eyebrow="Compare Detail" title={compare.name} />
-      <div className="split-grid">
-        <div className="panel stack">
-          <h2>Baseline</h2>
-          <DistributionStrip distribution={compare.baseline_verdict_distribution} />
-          <CostStrip summary={compare.baseline_summary?.cost_summary} />
+    <section className="page-section">
+      <div className="page-heading">
+        <div>
+          <h1>{data.name}</h1>
+          <p>
+            {data.baseline_value} {'->'} {data.candidate_value}
+          </p>
         </div>
-        <div className="panel stack">
-          <h2>Candidate</h2>
-          <DistributionStrip distribution={compare.candidate_verdict_distribution} />
-          <CostStrip summary={compare.candidate_summary?.cost_summary} />
-        </div>
+        <Link className="button button-secondary" to="/compare">
+          返回对比
+        </Link>
       </div>
-      <DataTable
-        rows={compare.highlighted_problems ?? compare.problem_summaries ?? []}
-        getRowKey={(row) => row.problem_id}
-        emptyLabel="No changed problems"
-        columns={[
-          { key: 'problem', header: 'Problem', render: (row) => row.problem_id },
-          { key: 'baseline', header: 'Baseline', render: (row) => <StatusBadge value={row.baseline_verdict} /> },
-          { key: 'candidate', header: 'Candidate', render: (row) => <StatusBadge value={row.candidate_verdict} /> },
-          { key: 'change', header: 'Change', render: (row) => row.change_type },
-        ]}
-      />
+      <CompareResultPanel compare={data} />
     </section>
   );
 }
