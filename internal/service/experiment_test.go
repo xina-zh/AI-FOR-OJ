@@ -14,6 +14,8 @@ import (
 
 type fakeExperimentRepository struct {
 	experiment *model.Experiment
+	list       []model.Experiment
+	runTrace   *model.ExperimentRun
 	runs       []*model.ExperimentRun
 	updates    []*model.Experiment
 	nextID     uint
@@ -62,6 +64,13 @@ func (r *fakeExperimentRepository) CreateRun(_ context.Context, run *model.Exper
 	return nil
 }
 
+func (r *fakeExperimentRepository) List(_ context.Context, query repository.ExperimentListQuery) ([]model.Experiment, int64, error) {
+	if r.err != nil {
+		return nil, 0, r.err
+	}
+	return r.list, int64(len(r.list)), nil
+}
+
 func (r *fakeExperimentRepository) GetByIDWithRuns(_ context.Context, experimentID uint) (*model.Experiment, error) {
 	if r.err != nil {
 		return nil, r.err
@@ -70,6 +79,16 @@ func (r *fakeExperimentRepository) GetByIDWithRuns(_ context.Context, experiment
 		return nil, repository.ErrExperimentNotFound
 	}
 	return r.getByID, nil
+}
+
+func (r *fakeExperimentRepository) GetRunTrace(_ context.Context, runID uint) (*model.ExperimentRun, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.runTrace == nil || r.runTrace.ID != runID {
+		return nil, repository.ErrExperimentRunNotFound
+	}
+	return r.runTrace, nil
 }
 
 type fakeBatchAISolver struct {
@@ -179,6 +198,43 @@ func TestExperimentServiceRun(t *testing.T) {
 	}
 	if repo.updates[len(repo.updates)-1].Status != ExperimentStatusCompleted {
 		t.Fatalf("expected final update to complete experiment, got %+v", repo.updates[len(repo.updates)-1])
+	}
+}
+
+func TestExperimentServiceRunPassesToolingConfig(t *testing.T) {
+	repo := &fakeExperimentRepository{}
+	aiSolver := &fakeBatchAISolver{
+		outputs: map[uint]*AISolveOutput{
+			1: {
+				AISolveRunID:  11,
+				ProblemID:     1,
+				SubmissionID:  101,
+				Verdict:       "AC",
+				ToolingConfig: `{"enabled":["sample_judge"],"max_calls":1,"per_tool_max_calls":{}}`,
+			},
+		},
+		errors: map[uint]error{},
+	}
+	service := NewExperimentService(repo, aiSolver, "mock-cpp17")
+
+	output, err := service.Run(context.Background(), RunExperimentInput{
+		Name:          "tooling-exp",
+		ProblemIDs:    []uint{1},
+		Model:         "mock-cpp17",
+		ToolingConfig: `{"enabled":["sample_judge"],"max_calls":1}`,
+	})
+	if err != nil {
+		t.Fatalf("run experiment returned error: %v", err)
+	}
+
+	if len(aiSolver.inputs) != 1 || aiSolver.inputs[0].ToolingConfig != `{"enabled":["sample_judge"],"max_calls":1,"per_tool_max_calls":{}}` {
+		t.Fatalf("expected tooling config to be passed to solve, got %+v", aiSolver.inputs)
+	}
+	if output.ToolingConfig != `{"enabled":["sample_judge"],"max_calls":1,"per_tool_max_calls":{}}` {
+		t.Fatalf("expected canonical tooling config in output, got %s", output.ToolingConfig)
+	}
+	if repo.experiment == nil || repo.experiment.ToolingConfig != output.ToolingConfig {
+		t.Fatalf("expected tooling config persisted, got %+v", repo.experiment)
 	}
 }
 

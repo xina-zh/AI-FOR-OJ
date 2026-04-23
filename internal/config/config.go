@@ -70,15 +70,18 @@ type SandboxConfig struct {
 }
 
 type LLMConfig struct {
-	Provider       string        `yaml:"provider"`
-	BaseURL        string        `yaml:"base_url"`
-	APIKey         string        `yaml:"api_key"`
-	Model          string        `yaml:"model"`
-	Timeout        time.Duration `yaml:"timeout"`
-	MockResponse   string        `yaml:"mock_response"`
-	GLMBaseURL     string        `yaml:"glm_base_url"`
-	GLMAPIKey      string        `yaml:"glm_api_key"`
-	GLMModelPrefix string        `yaml:"glm_model_prefix"`
+	Provider            string        `yaml:"provider"`
+	BaseURL             string        `yaml:"base_url"`
+	APIKey              string        `yaml:"api_key"`
+	Model               string        `yaml:"model"`
+	Timeout             time.Duration `yaml:"timeout"`
+	MockResponse        string        `yaml:"mock_response"`
+	GLMBaseURL          string        `yaml:"glm_base_url"`
+	GLMAPIKey           string        `yaml:"glm_api_key"`
+	GLMModelPrefix      string        `yaml:"glm_model_prefix"`
+	DeepSeekBaseURL     string        `yaml:"deepseek_base_url"`
+	DeepSeekAPIKey      string        `yaml:"deepseek_api_key"`
+	DeepSeekModelPrefix string        `yaml:"deepseek_model_prefix"`
 }
 
 func Load(path string) (Config, error) {
@@ -217,6 +220,9 @@ func applyEnvOverrides(cfg *Config) {
 	cfg.LLM.GLMBaseURL = getEnvString("LLM_GLM_BASE_URL", cfg.LLM.GLMBaseURL)
 	cfg.LLM.GLMAPIKey = getEnvString("LLM_GLM_API_KEY", cfg.LLM.GLMAPIKey)
 	cfg.LLM.GLMModelPrefix = getEnvString("LLM_GLM_MODEL_PREFIX", cfg.LLM.GLMModelPrefix)
+	cfg.LLM.DeepSeekBaseURL = getEnvString("LLM_DEEPSEEK_BASE_URL", cfg.LLM.DeepSeekBaseURL)
+	cfg.LLM.DeepSeekAPIKey = getEnvString("LLM_DEEPSEEK_API_KEY", cfg.LLM.DeepSeekAPIKey)
+	cfg.LLM.DeepSeekModelPrefix = getEnvString("LLM_DEEPSEEK_MODEL_PREFIX", cfg.LLM.DeepSeekModelPrefix)
 }
 
 func getEnvString(key, fallback string) string {

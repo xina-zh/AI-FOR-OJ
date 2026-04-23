@@ -162,6 +162,37 @@ func TestJudgeTimeLimitExceeded(t *testing.T) {
 	}
 }
 
+func TestJudgeMemoryLimitExceeded(t *testing.T) {
+	engine := NewEngine(sandbox.NewMockSandbox())
+
+	result, err := engine.Judge(context.Background(), Request{
+		Problem: &model.Problem{
+			TimeLimitMS:   1000,
+			MemoryLimitMB: 64,
+		},
+		TestCases: []model.TestCase{
+			{Input: "1", ExpectedOutput: "1"},
+		},
+		Language:   model.LanguageCPP17,
+		SourceCode: "MOCK_MLE",
+	})
+	if err != nil {
+		t.Fatalf("judge returned error: %v", err)
+	}
+
+	if result.Verdict != VerdictMemoryLimitExceeded || !result.MemoryExceeded {
+		t.Fatalf("expected MLE result, got %+v", result)
+	}
+	if result.MemoryKB < 64*1024 {
+		t.Fatalf("expected memory usage at least limit, got %d", result.MemoryKB)
+	}
+	if len(result.TestCaseResults) != 1 ||
+		result.TestCaseResults[0].Verdict != VerdictMemoryLimitExceeded ||
+		!result.TestCaseResults[0].MemoryExceeded {
+		t.Fatalf("expected testcase MLE summary, got %+v", result.TestCaseResults)
+	}
+}
+
 func TestJudgeRuntimeError(t *testing.T) {
 	engine := NewEngine(sandbox.NewMockSandbox())
 

@@ -35,7 +35,11 @@ func (r *GORMAISolveRunRepository) Update(ctx context.Context, run *model.AISolv
 
 func (r *GORMAISolveRunRepository) GetByID(ctx context.Context, runID uint) (*model.AISolveRun, error) {
 	var run model.AISolveRun
-	if err := r.db.WithContext(ctx).First(&run, runID).Error; err != nil {
+	if err := r.db.WithContext(ctx).
+		Preload("Attempts", func(db *gorm.DB) *gorm.DB {
+			return db.Order("attempt_no ASC, id ASC")
+		}).
+		First(&run, runID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrAISolveRunNotFound
 		}

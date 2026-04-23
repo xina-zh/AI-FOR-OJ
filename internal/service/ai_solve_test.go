@@ -13,6 +13,7 @@ import (
 	"ai-for-oj/internal/model"
 	"ai-for-oj/internal/prompt"
 	"ai-for-oj/internal/repository"
+	"ai-for-oj/internal/tooling"
 )
 
 type fakeAISolveRunRepository struct {
@@ -59,6 +60,48 @@ func (r *fakeAISolveRunRepository) GetByID(_ context.Context, runID uint) (*mode
 	return r.getRun, nil
 }
 
+type fakeAISolveAttemptRepository struct {
+	created []model.AISolveAttempt
+	err     error
+}
+
+func (r *fakeAISolveAttemptRepository) Create(_ context.Context, attempt *model.AISolveAttempt) error {
+	if r.err != nil {
+		return r.err
+	}
+	copied := *attempt
+	copied.ID = uint(len(r.created) + 1)
+	r.created = append(r.created, copied)
+	return nil
+}
+
+func (r *fakeAISolveAttemptRepository) ListByRunID(_ context.Context, runID uint) ([]model.AISolveAttempt, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	items := make([]model.AISolveAttempt, 0, len(r.created))
+	for _, item := range r.created {
+		if item.AISolveRunID == runID {
+			items = append(items, item)
+		}
+	}
+	return items, nil
+}
+
+type countingServiceTool struct {
+	name  string
+	calls int
+}
+
+func (t *countingServiceTool) Name() string {
+	return t.name
+}
+
+func (t *countingServiceTool) Run(context.Context, tooling.CallInput) (tooling.CallOutput, error) {
+	t.calls++
+	return tooling.CallOutput{ToolName: t.name, Status: tooling.CallStatusOK, Summary: "ok"}, nil
+}
+
 type fakeLLMClient struct {
 	response  llm.GenerateResponse
 	err       error
@@ -68,6 +111,119 @@ type fakeLLMClient struct {
 	responses []llm.GenerateResponse
 	errors    []error
 	delays    []time.Duration
+}
+
+func TestAISolveServiceSolveAdaptiveRepairPersistsAttempts(t *testing.T) {
+	llmClient := &fakeLLMClient{
+		responses: []llm.GenerateResponse{
+			{Model: "gpt-5.4", Content: "```cpp\nint main(){return 1;}\n```", InputTokens: 10, OutputTokens: 20},
+			{Model: "gpt-5.4", Content: "```cpp\nint main(){return 0;}\n```", InputTokens: 30, OutputTokens: 40},
+		},
+	}
+	judgeSubmitter := &fakeJudgeSubmitter{
+		outputs: []*JudgeSubmissionOutput{
+			{SubmissionID: 11, ProblemID: 1, SourceType: model.SourceTypeAI, Verdict: "WA", ErrorMessage: "wrong answer", PassedCount: 0, TotalCount: 1},
+			{SubmissionID: 12, ProblemID: 1, SourceType: model.SourceTypeAI, Verdict: "AC", PassedCount: 1, TotalCount: 1},
+		},
+	}
+	runRepo := &fakeAISolveRunRepository{}
+	attemptRepo := &fakeAISolveAttemptRepository{}
+	service := NewAISolveService(
+		fakeProblemRepository{problem: adaptiveServiceTestProblem()},
+		runRepo,
+		llmClient,
+		judgeSubmitter,
+		"default-model",
+		attemptRepo,
+	)
+
+	output, err := service.Solve(context.Background(), AISolveInput{
+		ProblemID: 1,
+		AgentName: agent.AdaptiveRepairV1AgentName,
+	})
+	if err != nil {
+		t.Fatalf("solve returned error: %v", err)
+	}
+
+	if output.Verdict != "AC" || output.SubmissionID != 12 {
+		t.Fatalf("expected adaptive repair to end in AC, got %+v", output)
+	}
+	if output.AttemptCount != 2 || output.FailureType != agent.FailureTypeWrongAnswer {
+		t.Fatalf("expected terminal attempt summary, got %+v", output)
+	}
+	if !strings.Contains(output.StrategyPath, agent.StageInitialCodegen) ||
+		!strings.Contains(output.StrategyPath, agent.StageWAAnalysisRepair) {
+		t.Fatalf("expected strategy path to include initial and WA repair stages, got %q", output.StrategyPath)
+	}
+	if len(attemptRepo.created) != 2 {
+		t.Fatalf("expected two persisted attempts, got %+v", attemptRepo.created)
+	}
+	if attemptRepo.created[0].AttemptNo != 1 || attemptRepo.created[0].Stage != agent.StageInitialCodegen || attemptRepo.created[0].Verdict != "WA" {
+		t.Fatalf("unexpected first attempt: %+v", attemptRepo.created[0])
+	}
+	if attemptRepo.created[1].AttemptNo != 2 || attemptRepo.created[1].Stage != agent.StageWAAnalysisRepair || attemptRepo.created[1].Verdict != "AC" {
+		t.Fatalf("unexpected repair attempt: %+v", attemptRepo.created[1])
+	}
+	if len(runRepo.updated) != 1 || runRepo.updated[0].AttemptCount != 2 ||
+		runRepo.updated[0].FailureType != agent.FailureTypeWrongAnswer ||
+		!strings.Contains(runRepo.updated[0].StrategyPath, agent.StageWAAnalysisRepair) {
+		t.Fatalf("expected run attempt summary to be persisted, got %+v", runRepo.updated)
+	}
+}
+
+func TestAISolveServiceSolveAdaptiveRepairSelectsRuntimeAndTimeStages(t *testing.T) {
+	tests := []struct {
+		name          string
+		verdict       string
+		expectedStage string
+		promptMarker  string
+	}{
+		{name: "runtime error", verdict: "RE", expectedStage: agent.StageRESafetyRepair, promptMarker: "safety checks"},
+		{name: "time limit", verdict: "TLE", expectedStage: agent.StageTLEComplexityRewrite, promptMarker: "complexity comparison"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			llmClient := &fakeLLMClient{
+				responses: []llm.GenerateResponse{
+					{Model: "gpt-5.4", Content: "```cpp\nint main(){return 1;}\n```"},
+					{Model: "gpt-5.4", Content: "```cpp\nint main(){return 0;}\n```"},
+				},
+			}
+			judgeSubmitter := &fakeJudgeSubmitter{
+				outputs: []*JudgeSubmissionOutput{
+					{SubmissionID: 11, ProblemID: 1, SourceType: model.SourceTypeAI, Verdict: tt.verdict, ErrorMessage: tt.verdict},
+					{SubmissionID: 12, ProblemID: 1, SourceType: model.SourceTypeAI, Verdict: "AC"},
+				},
+			}
+			attemptRepo := &fakeAISolveAttemptRepository{}
+			service := NewAISolveService(
+				fakeProblemRepository{problem: adaptiveServiceTestProblem()},
+				&fakeAISolveRunRepository{},
+				llmClient,
+				judgeSubmitter,
+				"default-model",
+				attemptRepo,
+			)
+
+			output, err := service.Solve(context.Background(), AISolveInput{
+				ProblemID: 1,
+				AgentName: agent.AdaptiveRepairV1AgentName,
+			})
+			if err != nil {
+				t.Fatalf("solve returned error: %v", err)
+			}
+			if output.Verdict != "AC" {
+				t.Fatalf("expected AC after repair, got %+v", output)
+			}
+			if len(attemptRepo.created) != 2 || attemptRepo.created[1].Stage != tt.expectedStage {
+				t.Fatalf("expected repair stage %s, got %+v", tt.expectedStage, attemptRepo.created)
+			}
+			if len(llmClient.requests) != 2 || !strings.Contains(llmClient.requests[1].Prompt, tt.promptMarker) {
+				t.Fatalf("expected repair prompt to include %q, got requests=%+v", tt.promptMarker, llmClient.requests)
+			}
+		})
+	}
 }
 
 func (c *fakeLLMClient) Generate(_ context.Context, req llm.GenerateRequest) (llm.GenerateResponse, error) {
@@ -213,6 +369,82 @@ func TestAISolveServiceSolve(t *testing.T) {
 	}
 	if runRepo.updated[0].TotalLatencyMS < runRepo.updated[0].LLMLatencyMS {
 		t.Fatalf("expected latency persisted, got %+v", runRepo.updated[0])
+	}
+}
+
+func TestAISolveServiceSolveCanonicalizesToolingConfig(t *testing.T) {
+	llmClient := &fakeLLMClient{
+		response: llm.GenerateResponse{
+			Model:   "mock-cpp17",
+			Content: "```cpp\nint main(){return 0;}\n```",
+		},
+	}
+	judgeSubmitter := &fakeJudgeSubmitter{
+		output: &JudgeSubmissionOutput{SubmissionID: 10, ProblemID: 1, SourceType: model.SourceTypeAI, Verdict: "AC"},
+	}
+	runRepo := &fakeAISolveRunRepository{}
+	service := NewAISolveService(
+		fakeProblemRepository{problem: adaptiveServiceTestProblem()},
+		runRepo,
+		llmClient,
+		judgeSubmitter,
+		"default-model",
+	)
+
+	output, err := service.Solve(context.Background(), AISolveInput{
+		ProblemID:     1,
+		ToolingConfig: `{"enabled":[" sample_judge ","sample_judge"],"max_calls":1}`,
+	})
+	if err != nil {
+		t.Fatalf("solve returned error: %v", err)
+	}
+
+	if output.ToolingConfig != `{"enabled":["sample_judge"],"max_calls":1,"per_tool_max_calls":{}}` {
+		t.Fatalf("unexpected canonical tooling config: %s", output.ToolingConfig)
+	}
+	if output.ToolCallCount != 0 {
+		t.Fatalf("expected no tool calls for non-tooling agent, got %d", output.ToolCallCount)
+	}
+	if len(runRepo.updated) != 1 || runRepo.updated[0].ToolingConfig != output.ToolingConfig {
+		t.Fatalf("expected tooling config persisted, got %+v", runRepo.updated)
+	}
+}
+
+func TestAISolveServiceSolveToolingCodegenReportsToolCalls(t *testing.T) {
+	llmClient := &fakeLLMClient{
+		response: llm.GenerateResponse{
+			Model:   "mock-cpp17",
+			Content: "```cpp\nint main(){return 0;}\n```",
+		},
+	}
+	judgeSubmitter := &fakeJudgeSubmitter{
+		output: &JudgeSubmissionOutput{SubmissionID: 10, ProblemID: 1, SourceType: model.SourceTypeAI, Verdict: "AC"},
+	}
+	runRepo := &fakeAISolveRunRepository{}
+	registry := tooling.NewRegistry()
+	registry.Register(&countingServiceTool{name: tooling.SampleJudgeToolName})
+	service := NewAISolveService(
+		fakeProblemRepository{problem: adaptiveServiceTestProblem()},
+		runRepo,
+		llmClient,
+		judgeSubmitter,
+		"default-model",
+	)
+	service.SetToolingRegistry(registry)
+
+	output, err := service.Solve(context.Background(), AISolveInput{
+		ProblemID:     1,
+		AgentName:     agent.ToolingCodegenV1AgentName,
+		ToolingConfig: `{"enabled":["sample_judge"],"max_calls":1}`,
+	})
+	if err != nil {
+		t.Fatalf("solve returned error: %v", err)
+	}
+	if output.ToolCallCount != 1 {
+		t.Fatalf("expected one tool call, got %+v", output)
+	}
+	if len(runRepo.updated) != 1 || runRepo.updated[0].ToolCallCount != 1 {
+		t.Fatalf("expected tool call count persisted, got %+v", runRepo.updated)
 	}
 }
 

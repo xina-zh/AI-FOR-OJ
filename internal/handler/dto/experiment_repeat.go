@@ -7,12 +7,13 @@ import (
 )
 
 type RepeatExperimentRequest struct {
-	Name        string `json:"name"`
-	ProblemIDs  []uint `json:"problem_ids" binding:"required,min=1"`
-	Model       string `json:"model"`
-	PromptName  string `json:"prompt_name"`
-	AgentName   string `json:"agent_name"`
-	RepeatCount int    `json:"repeat_count" binding:"required,gte=1,lte=10"`
+	Name          string `json:"name"`
+	ProblemIDs    []uint `json:"problem_ids" binding:"required,min=1"`
+	Model         string `json:"model"`
+	PromptName    string `json:"prompt_name"`
+	AgentName     string `json:"agent_name"`
+	ToolingConfig string `json:"tooling_config"`
+	RepeatCount   int    `json:"repeat_count" binding:"required,gte=1,lte=10"`
 }
 
 type ExperimentRepeatRoundSummaryResponse struct {
@@ -52,6 +53,7 @@ type ExperimentRepeatResponse struct {
 	Model                      string                                    `json:"model"`
 	PromptName                 string                                    `json:"prompt_name"`
 	AgentName                  string                                    `json:"agent_name"`
+	ToolingConfig              string                                    `json:"tooling_config"`
 	ProblemIDs                 []uint                                    `json:"problem_ids"`
 	RepeatCount                int                                       `json:"repeat_count"`
 	ExperimentIDs              []uint                                    `json:"experiment_ids"`
@@ -72,4 +74,12 @@ type ExperimentRepeatResponse struct {
 	MostUnstableProblems       []ExperimentRepeatUnstableProblemResponse `json:"most_unstable_problems"`
 	CreatedAt                  time.Time                                 `json:"created_at"`
 	UpdatedAt                  time.Time                                 `json:"updated_at"`
+}
+
+type ExperimentRepeatListResponse struct {
+	Items      []ExperimentRepeatResponse `json:"items"`
+	Page       int                        `json:"page"`
+	PageSize   int                        `json:"page_size"`
+	Total      int64                      `json:"total"`
+	TotalPages int                        `json:"total_pages"`
 }

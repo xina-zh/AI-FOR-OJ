@@ -9,6 +9,7 @@ import (
 	"ai-for-oj/internal/model"
 	"ai-for-oj/internal/prompt"
 	"ai-for-oj/internal/repository"
+	"ai-for-oj/internal/tooling"
 )
 
 const (
@@ -28,19 +29,25 @@ type RunExperimentInput struct {
 	Model               string
 	PromptName          string
 	AgentName           string
+	ToolingConfig       string
 	OnExperimentCreated func(experimentID uint) error
 }
 
 type ExperimentRunOutput struct {
-	ID           uint      `json:"id"`
-	ProblemID    uint      `json:"problem_id"`
-	AISolveRunID *uint     `json:"ai_solve_run_id,omitempty"`
-	SubmissionID *uint     `json:"submission_id,omitempty"`
-	AttemptNo    int       `json:"attempt_no"`
-	Verdict      string    `json:"verdict,omitempty"`
-	Status       string    `json:"status"`
-	ErrorMessage string    `json:"error_message,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID            uint      `json:"id"`
+	ProblemID     uint      `json:"problem_id"`
+	AISolveRunID  *uint     `json:"ai_solve_run_id,omitempty"`
+	SubmissionID  *uint     `json:"submission_id,omitempty"`
+	AttemptNo     int       `json:"attempt_no"`
+	Verdict       string    `json:"verdict,omitempty"`
+	Status        string    `json:"status"`
+	ErrorMessage  string    `json:"error_message,omitempty"`
+	AttemptCount  int       `json:"attempt_count"`
+	FailureType   string    `json:"failure_type,omitempty"`
+	StrategyPath  string    `json:"strategy_path,omitempty"`
+	ToolingConfig string    `json:"tooling_config"`
+	ToolCallCount int       `json:"tool_call_count"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type ExperimentCostSummary struct {
@@ -63,6 +70,7 @@ type ExperimentOutput struct {
 	Model               string                `json:"model"`
 	PromptName          string                `json:"prompt_name"`
 	AgentName           string                `json:"agent_name"`
+	ToolingConfig       string                `json:"tooling_config"`
 	Status              string                `json:"status"`
 	TotalCount          int                   `json:"total_count"`
 	SuccessCount        int                   `json:"success_count"`
@@ -73,6 +81,70 @@ type ExperimentOutput struct {
 	CreatedAt           time.Time             `json:"created_at"`
 	UpdatedAt           time.Time             `json:"updated_at"`
 	Runs                []ExperimentRunOutput `json:"runs"`
+}
+
+type ExperimentListInput struct {
+	Page     int
+	PageSize int
+}
+
+type ExperimentListOutput struct {
+	Items      []ExperimentOutput `json:"items"`
+	Page       int                `json:"page"`
+	PageSize   int                `json:"page_size"`
+	Total      int64              `json:"total"`
+	TotalPages int                `json:"total_pages"`
+}
+
+type ExperimentRunTraceEventOutput struct {
+	ID         uint      `json:"id"`
+	SequenceNo int       `json:"sequence_no"`
+	StepType   string    `json:"step_type"`
+	Content    string    `json:"content"`
+	Metadata   string    `json:"metadata"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type ExperimentTraceAISolveRunOutput struct {
+	ID             uint   `json:"id"`
+	Status         string `json:"status"`
+	Verdict        string `json:"verdict"`
+	AttemptCount   int    `json:"attempt_count"`
+	FailureType    string `json:"failure_type,omitempty"`
+	StrategyPath   string `json:"strategy_path,omitempty"`
+	ToolingConfig  string `json:"tooling_config"`
+	ToolCallCount  int    `json:"tool_call_count"`
+	TokenInput     int64  `json:"token_input"`
+	TokenOutput    int64  `json:"token_output"`
+	LLMLatencyMS   int    `json:"llm_latency_ms"`
+	TotalLatencyMS int    `json:"total_latency_ms"`
+}
+
+type ExperimentTraceSubmissionOutput struct {
+	ID          uint   `json:"id"`
+	ProblemID   uint   `json:"problem_id"`
+	Language    string `json:"language"`
+	SourceType  string `json:"source_type"`
+	Verdict     string `json:"verdict,omitempty"`
+	RuntimeMS   int    `json:"runtime_ms"`
+	MemoryKB    int    `json:"memory_kb"`
+	PassedCount int    `json:"passed_count"`
+	TotalCount  int    `json:"total_count"`
+}
+
+type ExperimentRunTraceOutput struct {
+	ExperimentRunID uint                             `json:"experiment_run_id"`
+	ExperimentID    uint                             `json:"experiment_id"`
+	ProblemID       uint                             `json:"problem_id"`
+	AISolveRunID    *uint                            `json:"ai_solve_run_id,omitempty"`
+	SubmissionID    *uint                            `json:"submission_id,omitempty"`
+	AttemptNo       int                              `json:"attempt_no"`
+	Verdict         string                           `json:"verdict,omitempty"`
+	Status          string                           `json:"status"`
+	ErrorMessage    string                           `json:"error_message,omitempty"`
+	Timeline        []ExperimentRunTraceEventOutput  `json:"timeline"`
+	AISolveRun      *ExperimentTraceAISolveRunOutput `json:"ai_solve_run,omitempty"`
+	Submission      *ExperimentTraceSubmissionOutput `json:"submission,omitempty"`
 }
 
 type ExperimentService struct {
@@ -102,14 +174,19 @@ func (s *ExperimentService) Run(ctx context.Context, input RunExperimentInput) (
 	if err != nil {
 		return nil, err
 	}
+	_, canonicalToolingConfig, err := tooling.ResolveConfig(input.ToolingConfig)
+	if err != nil {
+		return nil, err
+	}
 
 	experiment := &model.Experiment{
-		Name:       defaultExperimentName(input.Name),
-		ModelName:  firstNonEmpty(input.Model, s.defaultModel),
-		PromptName: resolvedPromptName,
-		AgentName:  resolvedAgentName,
-		Status:     ExperimentStatusRunning,
-		TotalCount: len(input.ProblemIDs),
+		Name:          defaultExperimentName(input.Name),
+		ModelName:     firstNonEmpty(input.Model, s.defaultModel),
+		PromptName:    resolvedPromptName,
+		AgentName:     resolvedAgentName,
+		ToolingConfig: canonicalToolingConfig,
+		Status:        ExperimentStatusRunning,
+		TotalCount:    len(input.ProblemIDs),
 	}
 	if err := s.experiments.Create(ctx, experiment); err != nil {
 		return nil, fmt.Errorf("create experiment: %w", err)
@@ -122,10 +199,11 @@ func (s *ExperimentService) Run(ctx context.Context, input RunExperimentInput) (
 
 	for index, problemID := range input.ProblemIDs {
 		aiOutput, err := s.aiSolver.Solve(ctx, AISolveInput{
-			ProblemID:  problemID,
-			Model:      experiment.ModelName,
-			PromptName: experiment.PromptName,
-			AgentName:  experiment.AgentName,
+			ProblemID:     problemID,
+			Model:         experiment.ModelName,
+			PromptName:    experiment.PromptName,
+			AgentName:     experiment.AgentName,
+			ToolingConfig: experiment.ToolingConfig,
 		})
 
 		run := &model.ExperimentRun{
@@ -146,6 +224,11 @@ func (s *ExperimentService) Run(ctx context.Context, input RunExperimentInput) (
 					TokenOutput:    aiOutput.TokenOutput,
 					LLMLatencyMS:   aiOutput.LLMLatencyMS,
 					TotalLatencyMS: aiOutput.TotalLatencyMS,
+					AttemptCount:   aiOutput.AttemptCount,
+					FailureType:    aiOutput.FailureType,
+					StrategyPath:   aiOutput.StrategyPath,
+					ToolingConfig:  aiOutput.ToolingConfig,
+					ToolCallCount:  aiOutput.ToolCallCount,
 				}
 			}
 			if aiOutput.SubmissionID != 0 {
@@ -190,22 +273,54 @@ func (s *ExperimentService) Get(ctx context.Context, experimentID uint) (*Experi
 	return toExperimentOutput(experiment), nil
 }
 
+func (s *ExperimentService) List(ctx context.Context, input ExperimentListInput) (*ExperimentListOutput, error) {
+	experiments, total, err := s.experiments.List(ctx, repository.ExperimentListQuery{
+		Page:     input.Page,
+		PageSize: input.PageSize,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list experiments: %w", err)
+	}
+
+	items := make([]ExperimentOutput, 0, len(experiments))
+	for _, experiment := range experiments {
+		items = append(items, *toExperimentOutput(&experiment))
+	}
+
+	return &ExperimentListOutput{
+		Items:      items,
+		Page:       input.Page,
+		PageSize:   input.PageSize,
+		Total:      total,
+		TotalPages: totalPages(total, input.PageSize),
+	}, nil
+}
+
+func (s *ExperimentService) GetRunTrace(ctx context.Context, runID uint) (*ExperimentRunTraceOutput, error) {
+	run, err := s.experiments.GetRunTrace(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	return toExperimentRunTraceOutput(run), nil
+}
+
 func toExperimentOutput(experiment *model.Experiment) *ExperimentOutput {
 	output := &ExperimentOutput{
-		ID:           experiment.ID,
-		Name:         experiment.Name,
-		Model:        experiment.ModelName,
-		PromptName:   prompt.DisplaySolvePromptName(experiment.PromptName),
-		AgentName:    agent.DisplaySolveAgentName(experiment.AgentName),
-		Status:       experiment.Status,
-		TotalCount:   experiment.TotalCount,
-		SuccessCount: experiment.SuccessCount,
-		ACCount:      experiment.ACCount,
-		FailedCount:  experiment.FailedCount,
-		CostSummary:  buildExperimentCostSummary(experiment.Runs),
-		CreatedAt:    experiment.CreatedAt,
-		UpdatedAt:    experiment.UpdatedAt,
-		Runs:         make([]ExperimentRunOutput, 0, len(experiment.Runs)),
+		ID:            experiment.ID,
+		Name:          experiment.Name,
+		Model:         experiment.ModelName,
+		PromptName:    prompt.DisplaySolvePromptName(experiment.PromptName),
+		AgentName:     agent.DisplaySolveAgentName(experiment.AgentName),
+		ToolingConfig: experiment.ToolingConfig,
+		Status:        experiment.Status,
+		TotalCount:    experiment.TotalCount,
+		SuccessCount:  experiment.SuccessCount,
+		ACCount:       experiment.ACCount,
+		FailedCount:   experiment.FailedCount,
+		CostSummary:   buildExperimentCostSummary(experiment.Runs),
+		CreatedAt:     experiment.CreatedAt,
+		UpdatedAt:     experiment.UpdatedAt,
+		Runs:          make([]ExperimentRunOutput, 0, len(experiment.Runs)),
 	}
 	for _, run := range experiment.Runs {
 		if run.FinalVerdict != "" {
@@ -213,7 +328,7 @@ func toExperimentOutput(experiment *model.Experiment) *ExperimentOutput {
 		} else if run.Status == ExperimentRunStatusFailed {
 			output.VerdictDistribution.Add("")
 		}
-		output.Runs = append(output.Runs, ExperimentRunOutput{
+		item := ExperimentRunOutput{
 			ID:           run.ID,
 			ProblemID:    run.ProblemID,
 			AISolveRunID: run.AISolveRunID,
@@ -223,7 +338,73 @@ func toExperimentOutput(experiment *model.Experiment) *ExperimentOutput {
 			Status:       run.Status,
 			ErrorMessage: run.ErrorMessage,
 			CreatedAt:    run.CreatedAt,
+		}
+		if run.AISolveRun != nil {
+			item.AttemptCount = run.AISolveRun.AttemptCount
+			item.FailureType = run.AISolveRun.FailureType
+			item.StrategyPath = run.AISolveRun.StrategyPath
+			item.ToolingConfig = run.AISolveRun.ToolingConfig
+			item.ToolCallCount = run.AISolveRun.ToolCallCount
+		}
+		output.Runs = append(output.Runs, item)
+	}
+	return output
+}
+
+func toExperimentRunTraceOutput(run *model.ExperimentRun) *ExperimentRunTraceOutput {
+	output := &ExperimentRunTraceOutput{
+		ExperimentRunID: run.ID,
+		ExperimentID:    run.ExperimentID,
+		ProblemID:       run.ProblemID,
+		AISolveRunID:    run.AISolveRunID,
+		SubmissionID:    run.SubmissionID,
+		AttemptNo:       run.AttemptNo,
+		Verdict:         run.FinalVerdict,
+		Status:          run.Status,
+		ErrorMessage:    run.ErrorMessage,
+		Timeline:        make([]ExperimentRunTraceEventOutput, 0, len(run.TraceEvents)),
+	}
+	for _, event := range run.TraceEvents {
+		output.Timeline = append(output.Timeline, ExperimentRunTraceEventOutput{
+			ID:         event.ID,
+			SequenceNo: event.SequenceNo,
+			StepType:   event.StepType,
+			Content:    event.Content,
+			Metadata:   event.Metadata,
+			CreatedAt:  event.CreatedAt,
 		})
+	}
+	if run.AISolveRun != nil {
+		output.AISolveRun = &ExperimentTraceAISolveRunOutput{
+			ID:             run.AISolveRun.ID,
+			Status:         run.AISolveRun.Status,
+			Verdict:        run.AISolveRun.Verdict,
+			AttemptCount:   run.AISolveRun.AttemptCount,
+			FailureType:    run.AISolveRun.FailureType,
+			StrategyPath:   run.AISolveRun.StrategyPath,
+			ToolingConfig:  run.AISolveRun.ToolingConfig,
+			ToolCallCount:  run.AISolveRun.ToolCallCount,
+			TokenInput:     run.AISolveRun.TokenInput,
+			TokenOutput:    run.AISolveRun.TokenOutput,
+			LLMLatencyMS:   run.AISolveRun.LLMLatencyMS,
+			TotalLatencyMS: run.AISolveRun.TotalLatencyMS,
+		}
+	}
+	if run.Submission != nil {
+		submission := &ExperimentTraceSubmissionOutput{
+			ID:         run.Submission.ID,
+			ProblemID:  run.Submission.ProblemID,
+			Language:   run.Submission.Language,
+			SourceType: run.Submission.SourceType,
+		}
+		if run.Submission.JudgeResult != nil {
+			submission.Verdict = run.Submission.JudgeResult.Verdict
+			submission.RuntimeMS = run.Submission.JudgeResult.RuntimeMS
+			submission.MemoryKB = run.Submission.JudgeResult.MemoryKB
+			submission.PassedCount = run.Submission.JudgeResult.PassedCount
+			submission.TotalCount = run.Submission.JudgeResult.TotalCount
+		}
+		output.Submission = submission
 	}
 	return output
 }

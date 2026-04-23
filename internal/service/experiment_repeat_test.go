@@ -16,6 +16,7 @@ type fakeExperimentRepeatRepository struct {
 	created *model.ExperimentRepeat
 	updated *model.ExperimentRepeat
 	getByID *model.ExperimentRepeat
+	list    []model.ExperimentRepeat
 	nextID  uint
 	err     error
 }
@@ -44,6 +45,13 @@ func (r *fakeExperimentRepeatRepository) Update(_ context.Context, repeat *model
 	r.updated = &copied
 	r.getByID = &copied
 	return nil
+}
+
+func (r *fakeExperimentRepeatRepository) List(_ context.Context, query repository.ExperimentRepeatListQuery) ([]model.ExperimentRepeat, int64, error) {
+	if r.err != nil {
+		return nil, 0, r.err
+	}
+	return r.list, int64(len(r.list)), nil
 }
 
 func (r *fakeExperimentRepeatRepository) GetByID(_ context.Context, repeatID uint) (*model.ExperimentRepeat, error) {
@@ -256,6 +264,40 @@ func TestExperimentRepeatServiceRepeatMarksFailedOnRoundError(t *testing.T) {
 	}
 	if runner.runInputs[0].AgentName != agent.AnalyzeThenCodegenAgentName || runner.runInputs[1].AgentName != agent.AnalyzeThenCodegenAgentName {
 		t.Fatalf("expected repeat to preserve agent across rounds before failure, got %+v", runner.runInputs)
+	}
+}
+
+func TestExperimentRepeatServiceRepeatPassesToolingConfig(t *testing.T) {
+	repo := &fakeExperimentRepeatRepository{}
+	runner := &fakeExperimentRunner{
+		runOutputs: []*ExperimentOutput{
+			{ID: 10, Name: "round-1", Model: "mock", PromptName: prompt.DefaultSolvePromptName, AgentName: agent.DirectCodegenAgentName, Status: ExperimentStatusCompleted},
+			{ID: 11, Name: "round-2", Model: "mock", PromptName: prompt.DefaultSolvePromptName, AgentName: agent.DirectCodegenAgentName, Status: ExperimentStatusCompleted},
+		},
+	}
+	service := NewExperimentRepeatService(repo, runner, "mock")
+
+	output, err := service.Repeat(context.Background(), RepeatExperimentInput{
+		Name:          "repeat-tooling",
+		ProblemIDs:    []uint{1},
+		Model:         "mock",
+		RepeatCount:   2,
+		ToolingConfig: `{"enabled":["sample_judge"],"max_calls":1}`,
+	})
+	if err != nil {
+		t.Fatalf("repeat returned error: %v", err)
+	}
+
+	for _, input := range runner.runInputs {
+		if input.ToolingConfig != `{"enabled":["sample_judge"],"max_calls":1,"per_tool_max_calls":{}}` {
+			t.Fatalf("expected canonical tooling config to be passed to round, got %+v", runner.runInputs)
+		}
+	}
+	if output.ToolingConfig != `{"enabled":["sample_judge"],"max_calls":1,"per_tool_max_calls":{}}` {
+		t.Fatalf("expected canonical tooling config in output, got %s", output.ToolingConfig)
+	}
+	if repo.updated == nil || repo.updated.ToolingConfig != output.ToolingConfig {
+		t.Fatalf("expected tooling config persisted, got %+v", repo.updated)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"ai-for-oj/internal/agent"
 	"ai-for-oj/internal/handler/dto"
+	"ai-for-oj/internal/model"
 	"ai-for-oj/internal/prompt"
 	"ai-for-oj/internal/repository"
 	"ai-for-oj/internal/service"
@@ -29,10 +30,11 @@ func (h *AIHandler) Solve(c *gin.Context) {
 	}
 
 	output, err := h.service.Solve(c.Request.Context(), service.AISolveInput{
-		ProblemID:  req.ProblemID,
-		Model:      req.Model,
-		PromptName: req.PromptName,
-		AgentName:  req.AgentName,
+		ProblemID:     req.ProblemID,
+		Model:         req.Model,
+		PromptName:    req.PromptName,
+		AgentName:     req.AgentName,
+		ToolingConfig: req.ToolingConfig,
 	})
 	if err != nil {
 		errorResp := dto.AISolveErrorResponse{Error: err.Error()}
@@ -46,6 +48,11 @@ func (h *AIHandler) Solve(c *gin.Context) {
 			errorResp.TokenOutput = output.TokenOutput
 			errorResp.LLMLatencyMS = output.LLMLatencyMS
 			errorResp.TotalLatencyMS = output.TotalLatencyMS
+			errorResp.AttemptCount = output.AttemptCount
+			errorResp.FailureType = output.FailureType
+			errorResp.StrategyPath = output.StrategyPath
+			errorResp.ToolingConfig = output.ToolingConfig
+			errorResp.ToolCallCount = output.ToolCallCount
 		}
 		switch {
 		case errors.Is(err, agent.ErrUnknownSolveAgent):
@@ -77,10 +84,16 @@ func (h *AIHandler) Solve(c *gin.Context) {
 		SubmissionID:   output.SubmissionID,
 		Verdict:        output.Verdict,
 		ErrorMessage:   output.ErrorMessage,
+		AttemptCount:   output.AttemptCount,
+		FailureType:    output.FailureType,
+		StrategyPath:   output.StrategyPath,
+		ToolingConfig:  output.ToolingConfig,
+		ToolCallCount:  output.ToolCallCount,
 		TokenInput:     output.TokenInput,
 		TokenOutput:    output.TokenOutput,
 		LLMLatencyMS:   output.LLMLatencyMS,
 		TotalLatencyMS: output.TotalLatencyMS,
+		Attempts:       toAISolveAttemptResponses(output.Attempts),
 	})
 }
 
@@ -114,11 +127,63 @@ func (h *AIHandler) GetRun(c *gin.Context) {
 		Verdict:        run.Verdict,
 		Status:         run.Status,
 		ErrorMessage:   run.ErrorMessage,
+		AttemptCount:   run.AttemptCount,
+		FailureType:    run.FailureType,
+		StrategyPath:   run.StrategyPath,
+		ToolingConfig:  run.ToolingConfig,
+		ToolCallCount:  run.ToolCallCount,
 		TokenInput:     run.TokenInput,
 		TokenOutput:    run.TokenOutput,
 		LLMLatencyMS:   run.LLMLatencyMS,
 		TotalLatencyMS: run.TotalLatencyMS,
 		CreatedAt:      run.CreatedAt,
 		UpdatedAt:      run.UpdatedAt,
+		Attempts:       toModelAISolveAttemptResponses(run.Attempts),
 	})
+}
+
+func toAISolveAttemptResponses(attempts []service.AISolveAttemptOutput) []dto.AISolveAttemptResponse {
+	if len(attempts) == 0 {
+		return nil
+	}
+	responses := make([]dto.AISolveAttemptResponse, 0, len(attempts))
+	for _, attempt := range attempts {
+		responses = append(responses, dto.AISolveAttemptResponse{
+			ID:             attempt.ID,
+			AttemptNo:      attempt.AttemptNo,
+			Stage:          attempt.Stage,
+			Model:          attempt.Model,
+			Verdict:        attempt.Verdict,
+			FailureType:    attempt.FailureType,
+			RepairReason:   attempt.RepairReason,
+			TokenInput:     attempt.TokenInput,
+			TokenOutput:    attempt.TokenOutput,
+			LLMLatencyMS:   attempt.LLMLatencyMS,
+			TotalLatencyMS: attempt.TotalLatencyMS,
+		})
+	}
+	return responses
+}
+
+func toModelAISolveAttemptResponses(attempts []model.AISolveAttempt) []dto.AISolveAttemptResponse {
+	if len(attempts) == 0 {
+		return nil
+	}
+	responses := make([]dto.AISolveAttemptResponse, 0, len(attempts))
+	for _, attempt := range attempts {
+		responses = append(responses, dto.AISolveAttemptResponse{
+			ID:             attempt.ID,
+			AttemptNo:      attempt.AttemptNo,
+			Stage:          attempt.Stage,
+			Model:          attempt.Model,
+			Verdict:        attempt.Verdict,
+			FailureType:    attempt.FailureType,
+			RepairReason:   attempt.RepairReason,
+			TokenInput:     attempt.TokenInput,
+			TokenOutput:    attempt.TokenOutput,
+			LLMLatencyMS:   attempt.LLMLatencyMS,
+			TotalLatencyMS: attempt.TotalLatencyMS,
+		})
+	}
+	return responses
 }

@@ -22,3 +22,24 @@ func TestLoadAppliesGLMEnvOverrides(t *testing.T) {
 		t.Fatalf("unexpected glm model prefix: %q", cfg.LLM.GLMModelPrefix)
 	}
 }
+
+func TestLoadAppliesDeepSeekEnvOverrides(t *testing.T) {
+	t.Setenv("LLM_DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+	t.Setenv("LLM_DEEPSEEK_API_KEY", "deepseek-test-key")
+	t.Setenv("LLM_DEEPSEEK_MODEL_PREFIX", "deepseek-")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.LLM.DeepSeekBaseURL != "https://api.deepseek.com" {
+		t.Fatalf("unexpected deepseek base url: %q", cfg.LLM.DeepSeekBaseURL)
+	}
+	if cfg.LLM.DeepSeekAPIKey != "deepseek-test-key" {
+		t.Fatalf("unexpected deepseek api key: %q", cfg.LLM.DeepSeekAPIKey)
+	}
+	if cfg.LLM.DeepSeekModelPrefix != "deepseek-" {
+		t.Fatalf("unexpected deepseek model prefix: %q", cfg.LLM.DeepSeekModelPrefix)
+	}
+}

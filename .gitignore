@@ -5,9 +5,11 @@ cat > .gitignore <<'EOF'
 # binaries
 bin/
 dist/
+node_modules/
 *.exe
 *.out
 server
+*.tsbuildinfo
 
 # Go
 .coverprofile

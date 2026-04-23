@@ -14,7 +14,13 @@ var ErrExperimentRepeatNotFound = errors.New("experiment repeat not found")
 type ExperimentRepeatRepository interface {
 	Create(ctx context.Context, repeat *model.ExperimentRepeat) error
 	Update(ctx context.Context, repeat *model.ExperimentRepeat) error
+	List(ctx context.Context, query ExperimentRepeatListQuery) ([]model.ExperimentRepeat, int64, error)
 	GetByID(ctx context.Context, repeatID uint) (*model.ExperimentRepeat, error)
+}
+
+type ExperimentRepeatListQuery struct {
+	Page     int
+	PageSize int
 }
 
 type GORMExperimentRepeatRepository struct {
@@ -31,6 +37,27 @@ func (r *GORMExperimentRepeatRepository) Create(ctx context.Context, repeat *mod
 
 func (r *GORMExperimentRepeatRepository) Update(ctx context.Context, repeat *model.ExperimentRepeat) error {
 	return r.db.WithContext(ctx).Save(repeat).Error
+}
+
+func (r *GORMExperimentRepeatRepository) List(ctx context.Context, query ExperimentRepeatListQuery) ([]model.ExperimentRepeat, int64, error) {
+	var repeats []model.ExperimentRepeat
+	db := r.db.WithContext(ctx).Model(&model.ExperimentRepeat{})
+
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	err := db.
+		Order("created_at DESC, id DESC").
+		Offset((query.Page - 1) * query.PageSize).
+		Limit(query.PageSize).
+		Find(&repeats).
+		Error
+	if err != nil {
+		return nil, 0, err
+	}
+	return repeats, total, nil
 }
 
 func (r *GORMExperimentRepeatRepository) GetByID(ctx context.Context, repeatID uint) (*model.ExperimentRepeat, error) {

@@ -289,6 +289,157 @@ func TestOpenAICompatibleClientRoutesGLMModelsByDefaultModel(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleClientRoutesDeepSeekModelsByRequestModel(t *testing.T) {
+	var defaultCalls int32
+	deepseekServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer deepseek-key" {
+			t.Fatalf("unexpected deepseek auth header: %s", got)
+		}
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("unexpected deepseek path: %s", r.URL.Path)
+		}
+
+		var req openAICompatibleRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode deepseek request: %v", err)
+		}
+		if req.Model != "deepseek-chat" {
+			t.Fatalf("unexpected deepseek request model: %s", req.Model)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model": "deepseek-chat",
+			"choices": []map[string]any{
+				{
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": "```cpp\nint main(){return 0;}\n```",
+					},
+				},
+			},
+			"usage": map[string]any{
+				"prompt_tokens":     12,
+				"completion_tokens": 6,
+			},
+		})
+	}))
+	defer deepseekServer.Close()
+
+	defaultServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&defaultCalls, 1)
+		t.Fatal("default endpoint should not be used for deepseek request model")
+	}))
+	defer defaultServer.Close()
+
+	client, err := NewClient(config.LLMConfig{
+		Provider:            ProviderOpenAICompatible,
+		BaseURL:             defaultServer.URL,
+		APIKey:              "default-key",
+		Model:               "gpt-test",
+		Timeout:             5 * time.Second,
+		DeepSeekBaseURL:     deepseekServer.URL,
+		DeepSeekAPIKey:      "deepseek-key",
+		DeepSeekModelPrefix: "deepseek-",
+	}, nil)
+	if err != nil {
+		t.Fatalf("new openai compatible client returned error: %v", err)
+	}
+
+	resp, err := client.Generate(context.Background(), GenerateRequest{
+		Prompt: "solve echo",
+		Model:  "deepseek-chat",
+	})
+	if err != nil {
+		t.Fatalf("deepseek-routed generate returned error: %v", err)
+	}
+	if resp.Model != "deepseek-chat" {
+		t.Fatalf("expected deepseek model, got %q", resp.Model)
+	}
+	if resp.InputTokens != 12 || resp.OutputTokens != 6 {
+		t.Fatalf("expected deepseek usage, got %+v", resp)
+	}
+	if atomic.LoadInt32(&defaultCalls) != 0 {
+		t.Fatalf("expected default endpoint to remain unused, got %d calls", defaultCalls)
+	}
+}
+
+func TestOpenAICompatibleClientRoutesDeepSeekModelsByDefaultModel(t *testing.T) {
+	var defaultCalls int32
+	deepseekServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer deepseek-key" {
+			t.Fatalf("unexpected deepseek auth header: %s", got)
+		}
+
+		var req openAICompatibleRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode deepseek request: %v", err)
+		}
+		if req.Model != "deepseek-reasoner" {
+			t.Fatalf("unexpected deepseek request model: %s", req.Model)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model": "deepseek-reasoner",
+			"choices": []map[string]any{
+				{
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": "```cpp\nint main(){return 0;}\n```",
+					},
+				},
+			},
+		})
+	}))
+	defer deepseekServer.Close()
+
+	defaultServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&defaultCalls, 1)
+		t.Fatal("default endpoint should not be used for deepseek default model")
+	}))
+	defer defaultServer.Close()
+
+	client, err := NewClient(config.LLMConfig{
+		Provider:            ProviderOpenAICompatible,
+		BaseURL:             defaultServer.URL,
+		APIKey:              "default-key",
+		Model:               "deepseek-reasoner",
+		Timeout:             5 * time.Second,
+		DeepSeekBaseURL:     deepseekServer.URL,
+		DeepSeekAPIKey:      "deepseek-key",
+		DeepSeekModelPrefix: "deepseek-",
+	}, nil)
+	if err != nil {
+		t.Fatalf("new openai compatible client returned error: %v", err)
+	}
+
+	resp, err := client.Generate(context.Background(), GenerateRequest{
+		Prompt: "solve echo",
+	})
+	if err != nil {
+		t.Fatalf("deepseek default-model generate returned error: %v", err)
+	}
+	if resp.Model != "deepseek-reasoner" {
+		t.Fatalf("expected deepseek model, got %q", resp.Model)
+	}
+	if atomic.LoadInt32(&defaultCalls) != 0 {
+		t.Fatalf("expected default endpoint to remain unused, got %d calls", defaultCalls)
+	}
+}
+
+func TestNewClientOpenAICompatibleRequiresDeepSeekAPIKeyWhenRouteConfigured(t *testing.T) {
+	_, err := NewClient(config.LLMConfig{
+		Provider:            ProviderOpenAICompatible,
+		APIKey:              "default-key",
+		DeepSeekModelPrefix: "deepseek-",
+	}, nil)
+	if err == nil {
+		t.Fatal("expected missing deepseek api key error")
+	}
+	if !strings.Contains(err.Error(), "deepseek api key") {
+		t.Fatalf("expected deepseek api key error, got %v", err)
+	}
+}
+
 func TestOpenAICompatibleClientRetriesUnexpectedEOF(t *testing.T) {
 	var attempts int32
 	var requestBodies []string

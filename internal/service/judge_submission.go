@@ -35,18 +35,20 @@ type JudgeSubmissionOutput struct {
 	RunStderr       string                        `json:"run_stderr,omitempty"`
 	ExitCode        int                           `json:"exit_code"`
 	TimedOut        bool                          `json:"timed_out"`
+	MemoryExceeded  bool                          `json:"memory_exceeded"`
 	ExecStage       string                        `json:"exec_stage,omitempty"`
 	TestCaseResults []JudgeSubmissionCaseFeedback `json:"test_case_results,omitempty"`
 }
 
 type JudgeSubmissionCaseFeedback struct {
-	CaseIndex int    `json:"case_index"`
-	Verdict   string `json:"verdict"`
-	RuntimeMS int    `json:"runtime_ms"`
-	Stdout    string `json:"stdout,omitempty"`
-	Stderr    string `json:"stderr,omitempty"`
-	ExitCode  int    `json:"exit_code"`
-	TimedOut  bool   `json:"timed_out"`
+	CaseIndex      int    `json:"case_index"`
+	Verdict        string `json:"verdict"`
+	RuntimeMS      int    `json:"runtime_ms"`
+	Stdout         string `json:"stdout,omitempty"`
+	Stderr         string `json:"stderr,omitempty"`
+	ExitCode       int    `json:"exit_code"`
+	TimedOut       bool   `json:"timed_out"`
+	MemoryExceeded bool   `json:"memory_exceeded"`
 }
 
 type JudgeSubmissionService struct {
@@ -98,19 +100,20 @@ func (s *JudgeSubmissionService) Submit(ctx context.Context, input JudgeSubmissi
 	}
 
 	persistedResult := &model.JudgeResult{
-		SubmissionID:  submission.ID,
-		Verdict:       judgeResult.Verdict,
-		RuntimeMS:     judgeResult.RuntimeMS,
-		MemoryKB:      judgeResult.MemoryKB,
-		PassedCount:   judgeResult.PassedCount,
-		TotalCount:    judgeResult.TotalCount,
-		CompileStderr: judgeResult.CompileStderr,
-		RunStdout:     judgeResult.RunStdout,
-		RunStderr:     judgeResult.RunStderr,
-		ExitCode:      judgeResult.ExitCode,
-		TimedOut:      judgeResult.TimedOut,
-		ExecStage:     judgeResult.ExecStage,
-		ErrorMessage:  judgeResult.ErrorMessage,
+		SubmissionID:   submission.ID,
+		Verdict:        judgeResult.Verdict,
+		RuntimeMS:      judgeResult.RuntimeMS,
+		MemoryKB:       judgeResult.MemoryKB,
+		PassedCount:    judgeResult.PassedCount,
+		TotalCount:     judgeResult.TotalCount,
+		CompileStderr:  judgeResult.CompileStderr,
+		RunStdout:      judgeResult.RunStdout,
+		RunStderr:      judgeResult.RunStderr,
+		ExitCode:       judgeResult.ExitCode,
+		TimedOut:       judgeResult.TimedOut,
+		MemoryExceeded: judgeResult.MemoryExceeded,
+		ExecStage:      judgeResult.ExecStage,
+		ErrorMessage:   judgeResult.ErrorMessage,
 	}
 	if err := s.submissions.CreateJudgeResult(ctx, persistedResult); err != nil {
 		return nil, fmt.Errorf("create judge result: %w", err)
@@ -120,24 +123,26 @@ func (s *JudgeSubmissionService) Submit(ctx context.Context, input JudgeSubmissi
 	outputCaseResults := make([]JudgeSubmissionCaseFeedback, 0, len(judgeResult.TestCaseResults))
 	for _, item := range judgeResult.TestCaseResults {
 		testCaseResults = append(testCaseResults, model.SubmissionTestCaseResult{
-			SubmissionID: submission.ID,
-			TestCaseID:   item.TestCaseID,
-			CaseIndex:    item.CaseIndex,
-			Verdict:      item.Verdict,
-			RuntimeMS:    item.RuntimeMS,
-			Stdout:       item.Stdout,
-			Stderr:       item.Stderr,
-			ExitCode:     item.ExitCode,
-			TimedOut:     item.TimedOut,
+			SubmissionID:   submission.ID,
+			TestCaseID:     item.TestCaseID,
+			CaseIndex:      item.CaseIndex,
+			Verdict:        item.Verdict,
+			RuntimeMS:      item.RuntimeMS,
+			Stdout:         item.Stdout,
+			Stderr:         item.Stderr,
+			ExitCode:       item.ExitCode,
+			TimedOut:       item.TimedOut,
+			MemoryExceeded: item.MemoryExceeded,
 		})
 		outputCaseResults = append(outputCaseResults, JudgeSubmissionCaseFeedback{
-			CaseIndex: item.CaseIndex,
-			Verdict:   item.Verdict,
-			RuntimeMS: item.RuntimeMS,
-			Stdout:    item.Stdout,
-			Stderr:    item.Stderr,
-			ExitCode:  item.ExitCode,
-			TimedOut:  item.TimedOut,
+			CaseIndex:      item.CaseIndex,
+			Verdict:        item.Verdict,
+			RuntimeMS:      item.RuntimeMS,
+			Stdout:         item.Stdout,
+			Stderr:         item.Stderr,
+			ExitCode:       item.ExitCode,
+			TimedOut:       item.TimedOut,
+			MemoryExceeded: item.MemoryExceeded,
 		})
 	}
 	if err := s.submissions.CreateTestCaseResults(ctx, testCaseResults); err != nil {
@@ -160,6 +165,7 @@ func (s *JudgeSubmissionService) Submit(ctx context.Context, input JudgeSubmissi
 		RunStderr:       judgeResult.RunStderr,
 		ExitCode:        judgeResult.ExitCode,
 		TimedOut:        judgeResult.TimedOut,
+		MemoryExceeded:  judgeResult.MemoryExceeded,
 		ExecStage:       judgeResult.ExecStage,
 		TestCaseResults: outputCaseResults,
 	}, nil

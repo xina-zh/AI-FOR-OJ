@@ -6,10 +6,11 @@ import (
 )
 
 const (
-	mockCompileErrorMarker = "MOCK_CE"
-	mockTimeLimitMarker    = "MOCK_TLE"
-	mockRuntimeErrorMarker = "MOCK_RE"
-	mockWrongAnswerMarker  = "MOCK_WA"
+	mockCompileErrorMarker        = "MOCK_CE"
+	mockTimeLimitMarker           = "MOCK_TLE"
+	mockMemoryLimitExceededMarker = "MOCK_MLE"
+	mockRuntimeErrorMarker        = "MOCK_RE"
+	mockWrongAnswerMarker         = "MOCK_WA"
 )
 
 type MockSandbox struct {
@@ -51,6 +52,16 @@ func (m *MockSandbox) Run(_ context.Context, req RunRequest) (RunResult, error) 
 			MemoryKB:  0,
 			TimedOut:  true,
 			ExitCode:  -1,
+		}, nil
+	case strings.Contains(sourceCode, mockMemoryLimitExceededMarker):
+		return RunResult{
+			RuntimeMS:      1,
+			MemoryKB:       req.MemoryLimitMB * 1024,
+			Stderr:         "memory limit exceeded",
+			ExitCode:       137,
+			MemoryExceeded: true,
+			RuntimeError:   true,
+			ErrorMessage:   "memory limit exceeded",
 		}, nil
 	case strings.Contains(sourceCode, mockRuntimeErrorMarker):
 		return RunResult{

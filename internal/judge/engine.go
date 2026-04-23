@@ -91,6 +91,15 @@ func (e *JudgeEngine) Judge(ctx context.Context, req Request) (Result, error) {
 			result.TestCaseResults = append(result.TestCaseResults, caseResult)
 			result.ErrorMessage = pickErrorMessage("time limit exceeded", runResult.ErrorMessage, runResult.Stderr)
 			return result, nil
+		case runResult.MemoryExceeded:
+			result.Verdict = VerdictMemoryLimitExceeded
+			result.MemoryExceeded = true
+			result.MemoryKB = max(result.MemoryKB, memoryLimitKB(req.Problem.MemoryLimitMB))
+			caseResult.Verdict = VerdictMemoryLimitExceeded
+			caseResult.MemoryExceeded = true
+			result.TestCaseResults = append(result.TestCaseResults, caseResult)
+			result.ErrorMessage = pickErrorMessage("memory limit exceeded", runResult.ErrorMessage, runResult.Stderr)
+			return result, nil
 		case runResult.RuntimeError:
 			result.Verdict = VerdictRuntimeError
 			caseResult.Verdict = VerdictRuntimeError
@@ -130,6 +139,13 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func memoryLimitKB(memoryLimitMB int) int {
+	if memoryLimitMB <= 0 {
+		return 0
+	}
+	return memoryLimitMB * 1024
 }
 
 func pickErrorMessage(values ...string) string {

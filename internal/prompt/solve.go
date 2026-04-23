@@ -126,6 +126,19 @@ Judge Feedback:
 `, base, previousCode, feedback))
 }
 
+func BuildRepairPromptForStage(problem *model.Problem, stage, previousCode, feedback string) string {
+	switch stage {
+	case "wa_analysis_repair":
+		return BuildWARepairPrompt(problem, previousCode, feedback)
+	case "re_safety_repair":
+		return BuildRERepairPrompt(problem, previousCode, feedback)
+	case "tle_complexity_rewrite":
+		return BuildTLERepairPrompt(problem, previousCode, feedback)
+	default:
+		return BuildRepairPrompt(problem, StrictCPP17SolvePromptName, previousCode, feedback)
+	}
+}
+
 func buildDefaultSolvePrompt(problem *model.Problem) string {
 	return strings.TrimSpace(fmt.Sprintf(`
 PROMPT_TEMPLATE: default

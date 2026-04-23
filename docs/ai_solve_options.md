@@ -1,6 +1,6 @@
 # AI Solve 变量选项说明
 
-本文档说明 AI-FOR-OJ 中 `model`、`prompt_name`、`agent_name` 三类变量的可选项和作用。它们用于单题 AI Solve、批量 Experiment、Repeat 稳定性实验和 Compare 对比实验。
+本文档说明 AI-FOR-OJ 中 `model`、`prompt_name`、`agent_name`、`tooling_config` 四类变量的可选项和作用。它们用于单题 AI Solve、批量 Experiment、Repeat 稳定性实验和 Compare 对比实验。
 
 ## 总览
 
@@ -9,8 +9,9 @@
 | 模型 | Model | `model` | 决定本次调用哪个 LLM 模型。 |
 | 提示词 | Prompt | `prompt_name` | 决定题面如何被组织成发给模型的 prompt。 |
 | 智能体 | Agent | `agent_name` | 决定解题流程，是直接生成、先分析再生成，还是失败后修复。 |
+| 工具配置 | Tooling JSON | `tooling_config` | 决定本次 solve 是否允许调用样例判题等工具。 |
 
-前端会通过 `GET /api/v1/meta/experiment-options` 获取默认模型、Prompt 选项和 Agent 选项。当前 Prompt 和 Agent 是固定枚举，Model 是可输入字段，不是固定枚举。
+前端会通过 `GET /api/v1/meta/experiment-options` 获取默认模型、Prompt 选项、Agent 选项和 Tooling 选项。Prompt、Agent 和 Tooling 是固定枚举，Model 既可以使用 metadata 中的默认项，也可以按后端实际网关填写。
 
 ## Model 选择
 
@@ -80,6 +81,23 @@ LLM_GLM_MODEL_PREFIX=glm-
 
 未配置 GLM 路由时，`glm-*` 不会自动切换 endpoint，会按默认 OpenAI-compatible endpoint 发送。
 
+### `deepseek-*` 模型路由
+
+如果配置了 DeepSeek 路由：
+
+```bash
+LLM_DEEPSEEK_BASE_URL=https://api.deepseek.com
+LLM_DEEPSEEK_API_KEY=your-deepseek-key
+LLM_DEEPSEEK_MODEL_PREFIX=deepseek-
+```
+
+则模型名以 `deepseek-` 开头时，会自动路由到 DeepSeek endpoint。常见模型名包括：
+
+- `deepseek-chat`
+- `deepseek-reasoner`
+
+未配置 DeepSeek 路由时，`deepseek-*` 不会自动切换 endpoint，会按默认 OpenAI-compatible endpoint 发送。
+
 ## Prompt 选择
 
 `prompt_name` 决定题目内容如何组装成 prompt。当前支持以下三个选项。
@@ -137,7 +155,7 @@ LLM_GLM_MODEL_PREFIX=glm-
 
 ## Agent 选择
 
-`agent_name` 决定 AI Solve 的执行策略。当前支持以下三个选项。
+`agent_name` 决定 AI Solve 的执行策略。当前支持以下五个选项。
 
 ### `direct_codegen`
 
@@ -202,6 +220,88 @@ LLM_GLM_MODEL_PREFIX=glm-
 - 当前该 agent 不做失败后修复。
 - `AISolveRun` 会记录分析内容预览，便于回看模型的推理方向。
 
+### `adaptive_repair_v1`
+
+自适应修复 agent。
+
+执行流程：
+
+1. 首轮生成 C++17 代码并判题。
+2. 如果判题结果是 `AC`，直接结束。
+3. 如果失败，根据 verdict 分类，例如 `WA -> wrong_answer`、`RE -> runtime_error`、`TLE -> time_limit`、`MLE -> memory_limit`。
+4. Planner 选择对应修复阶段，例如 `wa_analysis_repair`、`re_safety_repair`、`tle_complexity_rewrite`。
+5. 最多总共尝试 3 次，并把每次尝试写入 `ai_solve_attempts`。
+
+适用场景：
+
+- 想观察失败原因和修复路径。
+- 想比较不同 verdict 下的修复 prompt 效果。
+- 需要在控制台回看每轮 prompt、响应、代码、verdict、token 和耗时。
+
+### `tooling_codegen_v1`
+
+带工具的代码生成 agent。
+
+执行流程：
+
+1. 首轮生成 C++17 代码。
+2. 如果 `tooling_config` 启用了 `sample_judge`，使用样例测试点运行一次样例判题。
+3. 工具返回非 AC 或错误反馈时，agent 可以带着样例反馈追加一次修复。
+4. 工具调用失败不会直接让 solve 失败，系统会继续使用已生成代码走最终判题。
+
+适用场景：
+
+- 想在最终提交前用公开样例做快速反馈。
+- 想把工具调用次数纳入实验变量。
+- 想比较“纯生成”和“生成 + 样例反馈”的收益。
+
+## Tooling 配置
+
+`tooling_config` 是 JSON 字符串，请求不传或传 `{}` 都表示禁用工具。
+
+禁用工具：
+
+```json
+{}
+```
+
+启用一次样例判题：
+
+```json
+{"enabled":["sample_judge"],"max_calls":1}
+```
+
+带单工具调用上限：
+
+```json
+{
+  "enabled": ["sample_judge"],
+  "max_calls": 2,
+  "per_tool_max_calls": {
+    "sample_judge": 1
+  }
+}
+```
+
+当前内置工具：
+
+- `sample_judge`：只运行题目的样例/公开测试点，不创建最终 `Submission`，返回 verdict、stdout/stderr、runtime 和错误文本。
+
+AI Solve、Experiment、Repeat 和 Compare 都会返回规范化后的 `tooling_config` 和 `tool_call_count`。Compare 中只有 tooling 不同时，`compare_dimension` 会是 `tooling`。
+
+## MLE 与 MemoryExceeded
+
+`MLE` 表示 Memory Limit Exceeded。Docker 沙箱检测到容器 `OOMKilled` 后，会返回：
+
+```json
+{
+  "verdict": "MLE",
+  "memory_exceeded": true
+}
+```
+
+该字段会持久化到 judge result 和 testcase result，并在 submission 查询 API 中返回。
+
 ## 常见组合建议
 
 | 目标 | 推荐组合 |
@@ -212,6 +312,8 @@ LLM_GLM_MODEL_PREFIX=glm-
 | 提高输出格式稳定性 | 实际模型 + `strict_cpp17` + `direct_codegen` |
 | 提高失败题修复机会 | 实际模型 + `default` 或 `strict_cpp17` + `direct_codegen_repair` |
 | 观察分析步骤是否提升正确率 | 实际模型 + `default` 或 `strict_cpp17` + `analyze_then_codegen` |
+| 观察失败分类和修复路径 | 实际模型 + `strict_cpp17` + `adaptive_repair_v1` |
+| 使用公开样例辅助生成 | 实际模型 + `strict_cpp17` + `tooling_codegen_v1` + `sample_judge` |
 
 ## 在不同功能中的使用
 
@@ -224,7 +326,8 @@ LLM_GLM_MODEL_PREFIX=glm-
   "problem_id": 35,
   "model": "gpt-5.4",
   "prompt_name": "default",
-  "agent_name": "direct_codegen"
+  "agent_name": "direct_codegen",
+  "tooling_config": "{}"
 }
 ```
 
@@ -273,6 +376,12 @@ LLM_GLM_MODEL_PREFIX=glm-
 - `verdict`
 - `status`
 - `error_message`
+- `attempt_count`
+- `failure_type`
+- `strategy_path`
+- `tooling_config`
+- `tool_call_count`
+- `attempts`
 - `token_input`
 - `token_output`
 - `llm_latency_ms`

@@ -58,350 +58,66 @@ Expected:
 
 ---
 
-### Task 1: Add DeepSeek Config Fields
+### Completed Task 1 Summary: Add DeepSeek Config Fields
 
-**Files:**
+**Implemented:**
 
-- Modify: `internal/config/config.go`
-- Modify: `configs/config.example.yaml`
-- Test: `internal/config/config_test.go`
+- Added DeepSeek route config fields to `internal/config/config.go`:
+  - `DeepSeekBaseURL`
+  - `DeepSeekAPIKey`
+  - `DeepSeekModelPrefix`
+- Added env overrides:
+  - `LLM_DEEPSEEK_BASE_URL`
+  - `LLM_DEEPSEEK_API_KEY`
+  - `LLM_DEEPSEEK_MODEL_PREFIX`
+- Added commented DeepSeek example config in `configs/config.example.yaml`.
+- Added `TestLoadAppliesDeepSeekEnvOverrides` in `internal/config/config_test.go`.
 
-**Step 1: Write the failing config test**
+**Verification:**
 
-Add this test to `internal/config/config_test.go`:
-
-```go
-func TestLoadAppliesDeepSeekEnvOverrides(t *testing.T) {
-	t.Setenv("LLM_DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-	t.Setenv("LLM_DEEPSEEK_API_KEY", "deepseek-test-key")
-	t.Setenv("LLM_DEEPSEEK_MODEL_PREFIX", "deepseek-")
-
-	cfg, err := Load("")
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-
-	if cfg.LLM.DeepSeekBaseURL != "https://api.deepseek.com" {
-		t.Fatalf("unexpected deepseek base url: %q", cfg.LLM.DeepSeekBaseURL)
-	}
-	if cfg.LLM.DeepSeekAPIKey != "deepseek-test-key" {
-		t.Fatalf("unexpected deepseek api key: %q", cfg.LLM.DeepSeekAPIKey)
-	}
-	if cfg.LLM.DeepSeekModelPrefix != "deepseek-" {
-		t.Fatalf("unexpected deepseek model prefix: %q", cfg.LLM.DeepSeekModelPrefix)
-	}
-}
-```
-
-**Step 2: Run the failing test**
-
-Run:
-
-```bash
-go test ./internal/config -run TestLoadAppliesDeepSeekEnvOverrides -count=1
-```
-
-Expected:
-
-- FAIL because `DeepSeekBaseURL`, `DeepSeekAPIKey`, and `DeepSeekModelPrefix` do not exist.
-
-**Step 3: Implement config fields**
-
-Modify `LLMConfig` in `internal/config/config.go`:
-
-```go
-type LLMConfig struct {
-	Provider            string        `yaml:"provider"`
-	BaseURL             string        `yaml:"base_url"`
-	APIKey              string        `yaml:"api_key"`
-	Model               string        `yaml:"model"`
-	Timeout             time.Duration `yaml:"timeout"`
-	MockResponse        string        `yaml:"mock_response"`
-	GLMBaseURL          string        `yaml:"glm_base_url"`
-	GLMAPIKey           string        `yaml:"glm_api_key"`
-	GLMModelPrefix      string        `yaml:"glm_model_prefix"`
-	DeepSeekBaseURL     string        `yaml:"deepseek_base_url"`
-	DeepSeekAPIKey      string        `yaml:"deepseek_api_key"`
-	DeepSeekModelPrefix string        `yaml:"deepseek_model_prefix"`
-}
-```
-
-Add env overrides in `applyEnvOverrides`:
-
-```go
-cfg.LLM.DeepSeekBaseURL = getEnvString("LLM_DEEPSEEK_BASE_URL", cfg.LLM.DeepSeekBaseURL)
-cfg.LLM.DeepSeekAPIKey = getEnvString("LLM_DEEPSEEK_API_KEY", cfg.LLM.DeepSeekAPIKey)
-cfg.LLM.DeepSeekModelPrefix = getEnvString("LLM_DEEPSEEK_MODEL_PREFIX", cfg.LLM.DeepSeekModelPrefix)
-```
-
-Do not set DeepSeek defaults in `defaultConfig`; an empty route means disabled.
-
-**Step 4: Document example config**
-
-Add commented fields under `llm:` in `configs/config.example.yaml`:
-
-```yaml
-  # Optional: route deepseek-* models to DeepSeek while keeping request-level model selection.
-  # DeepSeek API is OpenAI-compatible. Official base URL: https://api.deepseek.com
-  # deepseek_base_url: https://api.deepseek.com
-  # deepseek_api_key: your-deepseek-api-key
-  # deepseek_model_prefix: deepseek-
-```
-
-**Step 5: Verify and commit**
-
-Run:
-
-```bash
-go test ./internal/config -count=1
-```
-
-Expected: PASS.
-
-Commit:
-
-```bash
-git add internal/config/config.go internal/config/config_test.go configs/config.example.yaml
-git commit -m "feat: add deepseek llm config"
-```
+- RED: `go test ./internal/config -run TestLoadAppliesDeepSeekEnvOverrides -count=1` failed because DeepSeek fields did not exist.
+- GREEN: `go test ./internal/config -count=1` passed.
 
 ---
 
-### Task 2: Route DeepSeek Models Through the OpenAI-Compatible Client
+### Completed Task 2 Summary: Route DeepSeek Models Through the OpenAI-Compatible Client
 
-**Files:**
+**Implemented:**
 
-- Modify: `internal/llm/client.go`
-- Modify: `internal/llm/client_test.go`
-- Modify: `README.md`
-- Test: `internal/llm/client_test.go`
+- Added DeepSeek model-prefix routing in `internal/llm/client.go`.
+- `deepseek-*` request models and default models now route to the DeepSeek endpoint.
+- DeepSeek route configuration fails fast if route fields are configured without `DeepSeekAPIKey`.
+- Added route tests in `internal/llm/client_test.go` for:
+  - request-level `deepseek-chat`;
+  - default-model `deepseek-reasoner`;
+  - missing DeepSeek API key.
+- Documented `LLM_DEEPSEEK_*` environment variables and YAML config in `README.md`.
 
-**Step 1: Write request-model routing test**
+**Verification:**
 
-Add `TestOpenAICompatibleClientRoutesDeepSeekModelsByRequestModel` to `internal/llm/client_test.go`.
-
-The test should:
-
-- create a DeepSeek `httptest.Server`;
-- create a default endpoint server that fails if called;
-- configure `config.LLMConfig{Provider: ProviderOpenAICompatible, APIKey: "default-key", BaseURL: defaultServer.URL, DeepSeekBaseURL: deepseekServer.URL, DeepSeekAPIKey: "deepseek-key", DeepSeekModelPrefix: "deepseek-"}`;
-- call `Generate` with `Model: "deepseek-chat"`;
-- assert request path is `/chat/completions`;
-- assert auth header is `Bearer deepseek-key`;
-- assert response model and token usage are returned.
-
-**Step 2: Write default-model routing and missing-key tests**
-
-Add tests:
-
-```go
-func TestOpenAICompatibleClientRoutesDeepSeekModelsByDefaultModel(t *testing.T) { /* same setup, cfg.Model = "deepseek-reasoner", req.Model empty */ }
-
-func TestNewClientOpenAICompatibleRequiresDeepSeekAPIKeyWhenRouteConfigured(t *testing.T) {
-	_, err := NewClient(config.LLMConfig{
-		Provider:            ProviderOpenAICompatible,
-		APIKey:              "default-key",
-		DeepSeekModelPrefix: "deepseek-",
-	}, slog.Default())
-	if err == nil || !strings.Contains(err.Error(), "deepseek api key") {
-		t.Fatalf("expected deepseek api key error, got %v", err)
-	}
-}
-```
-
-**Step 3: Run failing tests**
-
-Run:
-
-```bash
-go test ./internal/llm -run 'DeepSeek|RequiresDeepSeek' -count=1
-```
-
-Expected: FAIL because DeepSeek route is not wired.
-
-**Step 4: Implement DeepSeek route**
-
-In `NewClient`, after GLM route setup, add:
-
-```go
-if strings.TrimSpace(cfg.DeepSeekBaseURL) != "" || strings.TrimSpace(cfg.DeepSeekAPIKey) != "" || strings.TrimSpace(cfg.DeepSeekModelPrefix) != "" {
-	if strings.TrimSpace(cfg.DeepSeekAPIKey) == "" {
-		return nil, fmt.Errorf("llm deepseek api key is required when deepseek route is configured")
-	}
-	deepseekEndpoint, err := newOpenAICompatibleEndpoint(defaultString(cfg.DeepSeekBaseURL, "https://api.deepseek.com"), cfg.DeepSeekAPIKey)
-	if err != nil {
-		return nil, fmt.Errorf("invalid llm deepseek route: %w", err)
-	}
-	routes = append(routes, modelEndpointRoute{
-		modelPrefix: defaultString(cfg.DeepSeekModelPrefix, "deepseek-"),
-		endpoint:    deepseekEndpoint,
-	})
-}
-```
-
-Keep GLM route behavior unchanged.
-
-**Step 5: Document usage**
-
-Add a short README section showing:
-
-```yaml
-llm:
-  provider: openai_compatible
-  base_url: https://api.openai.com/v1
-  api_key: your-default-key
-  deepseek_base_url: https://api.deepseek.com
-  deepseek_api_key: your-deepseek-key
-  deepseek_model_prefix: deepseek-
-```
-
-Explain that request model `deepseek-chat` and `deepseek-reasoner` route to DeepSeek.
-
-**Step 6: Verify and commit**
-
-Run:
-
-```bash
-go test ./internal/llm ./internal/config -count=1
-```
-
-Expected: PASS.
-
-Commit:
-
-```bash
-git add internal/llm/client.go internal/llm/client_test.go internal/config/config.go internal/config/config_test.go configs/config.example.yaml README.md
-git commit -m "feat: route deepseek models"
-```
+- RED: `go test ./internal/llm -run 'DeepSeek|RequiresDeepSeek' -count=1` failed because DeepSeek models still used the default endpoint and missing-key validation was absent.
+- GREEN: `go test ./internal/llm ./internal/config -count=1` passed.
 
 ---
 
-### Task 3: Add MLE Verdict and Judge-Level Signal
+### Completed Task 3 Summary: Add MLE Verdict and Judge-Level Signal
 
-**Files:**
+**Implemented:**
 
-- Modify: `internal/judge/verdict.go`
-- Modify: `internal/sandbox/types.go`
-- Modify: `internal/sandbox/mock.go`
-- Modify: `internal/judge/types.go`
-- Modify: `internal/judge/engine.go`
-- Test: `internal/judge/engine_test.go`
+- Added `VerdictMemoryLimitExceeded = "MLE"` in `internal/judge/verdict.go`.
+- Added `MemoryExceeded` to:
+  - `sandbox.RunResult`
+  - `judge.Result`
+  - `judge.TestCaseResult`
+- Added `MOCK_MLE` handling in `internal/sandbox/mock.go`.
+- Mapped sandbox memory exceeded results to `MLE` in `internal/judge/engine.go`.
+- Preserved verdict priority: TLE first, then MLE, then RE.
+- Added `TestJudgeMemoryLimitExceeded` in `internal/judge/engine_test.go`.
 
-**Step 1: Write failing judge test**
+**Verification:**
 
-Add `TestJudgeMemoryLimitExceeded` to `internal/judge/engine_test.go`:
-
-```go
-func TestJudgeMemoryLimitExceeded(t *testing.T) {
-	engine := NewEngine(sandbox.NewMockSandbox())
-
-	result, err := engine.Judge(context.Background(), Request{
-		Problem: &model.Problem{TimeLimitMS: 1000, MemoryLimitMB: 64},
-		TestCases: []model.TestCase{{Input: "1", ExpectedOutput: "1"}},
-		Language:   model.LanguageCPP17,
-		SourceCode: "MOCK_MLE",
-	})
-	if err != nil {
-		t.Fatalf("judge returned error: %v", err)
-	}
-	if result.Verdict != VerdictMemoryLimitExceeded || !result.MemoryExceeded {
-		t.Fatalf("expected MLE result, got %+v", result)
-	}
-	if result.MemoryKB < 64*1024 {
-		t.Fatalf("expected memory usage at least limit, got %d", result.MemoryKB)
-	}
-	if len(result.TestCaseResults) != 1 || result.TestCaseResults[0].Verdict != VerdictMemoryLimitExceeded || !result.TestCaseResults[0].MemoryExceeded {
-		t.Fatalf("expected testcase MLE, got %+v", result.TestCaseResults)
-	}
-}
-```
-
-**Step 2: Run failing test**
-
-Run:
-
-```bash
-go test ./internal/judge -run TestJudgeMemoryLimitExceeded -count=1
-```
-
-Expected: FAIL because `VerdictMemoryLimitExceeded`, `MemoryExceeded`, and `MOCK_MLE` do not exist.
-
-**Step 3: Add verdict and result fields**
-
-Add in `internal/judge/verdict.go`:
-
-```go
-VerdictMemoryLimitExceeded = "MLE"
-```
-
-Add to `sandbox.RunResult`:
-
-```go
-MemoryExceeded bool
-```
-
-Add to `judge.Result` and `judge.TestCaseResult`:
-
-```go
-MemoryExceeded bool
-```
-
-**Step 4: Teach mock sandbox to simulate MLE**
-
-In `internal/sandbox/mock.go`, add marker handling:
-
-```go
-const mockMemoryLimitExceededMarker = "MOCK_MLE"
-
-if strings.Contains(req.SourceCode, mockMemoryLimitExceededMarker) {
-	return RunResult{
-		ExitCode:        137,
-		RuntimeMS:       1,
-		MemoryKB:        req.MemoryLimitMB * 1024,
-		MemoryExceeded:  true,
-		RuntimeError:    true,
-		ErrorMessage:    "memory limit exceeded",
-	}, nil
-}
-```
-
-Use the actual mock file shape; the important behavior is `MemoryExceeded: true`.
-
-**Step 5: Map memory exceeded before runtime error**
-
-In `internal/judge/engine.go`, after TLE handling and before generic RE handling:
-
-```go
-if runResult.MemoryExceeded {
-	result.Verdict = VerdictMemoryLimitExceeded
-	result.MemoryExceeded = true
-	result.MemoryKB = maxInt(runResult.MemoryKB, req.Problem.MemoryLimitMB*1024)
-	result.ErrorMessage = pickErrorMessage("memory limit exceeded", runResult.ErrorMessage, runResult.Stderr)
-	testCaseResult.Verdict = VerdictMemoryLimitExceeded
-	testCaseResult.MemoryExceeded = true
-	testCaseResult.MemoryKB = result.MemoryKB
-	return result, nil
-}
-```
-
-Adapt names to the existing engine loop. Preserve priority: TLE first, then MLE, then RE.
-
-**Step 6: Verify and commit**
-
-Run:
-
-```bash
-go test ./internal/judge ./internal/sandbox -count=1
-```
-
-Expected: PASS.
-
-Commit:
-
-```bash
-git add internal/judge/verdict.go internal/judge/types.go internal/judge/engine.go internal/judge/engine_test.go internal/sandbox/types.go internal/sandbox/mock.go
-git commit -m "feat: add MLE verdict to judge"
-```
+- RED: `go test ./internal/judge -run TestJudgeMemoryLimitExceeded -count=1` failed because `MLE`, `MemoryExceeded`, and `MOCK_MLE` did not exist.
+- GREEN: `go test ./internal/judge ./internal/sandbox -count=1` passed.
 
 ---
 

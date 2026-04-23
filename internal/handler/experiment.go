@@ -39,11 +39,12 @@ func (h *ExperimentHandler) Run(c *gin.Context) {
 	}
 
 	output, err := h.service.Run(c.Request.Context(), service.RunExperimentInput{
-		Name:       req.Name,
-		ProblemIDs: req.ProblemIDs,
-		Model:      req.Model,
-		PromptName: req.PromptName,
-		AgentName:  req.AgentName,
+		Name:          req.Name,
+		ProblemIDs:    req.ProblemIDs,
+		Model:         req.Model,
+		PromptName:    req.PromptName,
+		AgentName:     req.AgentName,
+		ToolingConfig: req.ToolingConfig,
 	})
 	if err != nil {
 		if errors.Is(err, agent.ErrUnknownSolveAgent) {
@@ -69,14 +70,16 @@ func (h *ExperimentHandler) Compare(c *gin.Context) {
 	}
 
 	output, err := h.compareService.Compare(c.Request.Context(), service.CompareExperimentInput{
-		Name:                req.Name,
-		ProblemIDs:          req.ProblemIDs,
-		BaselineModel:       req.BaselineModel,
-		CandidateModel:      req.CandidateModel,
-		BaselinePromptName:  req.BaselinePromptName,
-		CandidatePromptName: req.CandidatePromptName,
-		BaselineAgentName:   req.BaselineAgentName,
-		CandidateAgentName:  req.CandidateAgentName,
+		Name:                   req.Name,
+		ProblemIDs:             req.ProblemIDs,
+		BaselineModel:          req.BaselineModel,
+		CandidateModel:         req.CandidateModel,
+		BaselinePromptName:     req.BaselinePromptName,
+		CandidatePromptName:    req.CandidatePromptName,
+		BaselineAgentName:      req.BaselineAgentName,
+		CandidateAgentName:     req.CandidateAgentName,
+		BaselineToolingConfig:  req.BaselineToolingConfig,
+		CandidateToolingConfig: req.CandidateToolingConfig,
 	})
 	if err != nil {
 		if errors.Is(err, agent.ErrUnknownSolveAgent) {
@@ -128,6 +131,40 @@ func (h *ExperimentHandler) ListCompare(c *gin.Context) {
 	})
 }
 
+func (h *ExperimentHandler) List(c *gin.Context) {
+	page, ok := parsePositiveIntQuery(c, "page", 1)
+	if !ok {
+		return
+	}
+	pageSize, ok := parsePositiveIntQuery(c, "page_size", 20)
+	if !ok {
+		return
+	}
+
+	output, err := h.service.List(c.Request.Context(), service.ExperimentListInput{
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	items := make([]dto.ExperimentResponse, 0, len(output.Items))
+	for _, item := range output.Items {
+		item := item
+		items = append(items, toExperimentResponse(&item))
+	}
+
+	c.JSON(http.StatusOK, dto.ExperimentListResponse{
+		Items:      items,
+		Page:       output.Page,
+		PageSize:   output.PageSize,
+		Total:      output.Total,
+		TotalPages: output.TotalPages,
+	})
+}
+
 func (h *ExperimentHandler) Repeat(c *gin.Context) {
 	var req dto.RepeatExperimentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -136,12 +173,13 @@ func (h *ExperimentHandler) Repeat(c *gin.Context) {
 	}
 
 	output, err := h.repeatService.Repeat(c.Request.Context(), service.RepeatExperimentInput{
-		Name:        req.Name,
-		ProblemIDs:  req.ProblemIDs,
-		Model:       req.Model,
-		PromptName:  req.PromptName,
-		AgentName:   req.AgentName,
-		RepeatCount: req.RepeatCount,
+		Name:          req.Name,
+		ProblemIDs:    req.ProblemIDs,
+		Model:         req.Model,
+		PromptName:    req.PromptName,
+		AgentName:     req.AgentName,
+		ToolingConfig: req.ToolingConfig,
+		RepeatCount:   req.RepeatCount,
 	})
 	if err != nil {
 		if errors.Is(err, agent.ErrUnknownSolveAgent) {
@@ -157,6 +195,40 @@ func (h *ExperimentHandler) Repeat(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, toExperimentRepeatResponse(output))
+}
+
+func (h *ExperimentHandler) ListRepeat(c *gin.Context) {
+	page, ok := parsePositiveIntQuery(c, "page", 1)
+	if !ok {
+		return
+	}
+	pageSize, ok := parsePositiveIntQuery(c, "page_size", 20)
+	if !ok {
+		return
+	}
+
+	output, err := h.repeatService.List(c.Request.Context(), service.ExperimentRepeatListInput{
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	items := make([]dto.ExperimentRepeatResponse, 0, len(output.Items))
+	for _, item := range output.Items {
+		item := item
+		items = append(items, toExperimentRepeatResponse(&item))
+	}
+
+	c.JSON(http.StatusOK, dto.ExperimentRepeatListResponse{
+		Items:      items,
+		Page:       output.Page,
+		PageSize:   output.PageSize,
+		Total:      output.Total,
+		TotalPages: output.TotalPages,
+	})
 }
 
 func (h *ExperimentHandler) Get(c *gin.Context) {
@@ -219,19 +291,44 @@ func (h *ExperimentHandler) GetRepeat(c *gin.Context) {
 	c.JSON(http.StatusOK, toExperimentRepeatResponse(output))
 }
 
+func (h *ExperimentHandler) GetRunTrace(c *gin.Context) {
+	runID, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+
+	output, err := h.service.GetRunTrace(c.Request.Context(), runID)
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrExperimentRunNotFound):
+			c.JSON(http.StatusNotFound, dto.ErrorResponse{Error: err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, dto.ErrorResponse{Error: err.Error()})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, toExperimentRunTraceResponse(output))
+}
+
 func toExperimentResponse(output *service.ExperimentOutput) dto.ExperimentResponse {
 	runs := make([]dto.ExperimentRunResponse, 0, len(output.Runs))
 	for _, run := range output.Runs {
 		runs = append(runs, dto.ExperimentRunResponse{
-			ID:           run.ID,
-			ProblemID:    run.ProblemID,
-			AISolveRunID: run.AISolveRunID,
-			SubmissionID: run.SubmissionID,
-			AttemptNo:    run.AttemptNo,
-			Verdict:      run.Verdict,
-			Status:       run.Status,
-			ErrorMessage: run.ErrorMessage,
-			CreatedAt:    run.CreatedAt,
+			ID:            run.ID,
+			ProblemID:     run.ProblemID,
+			AISolveRunID:  run.AISolveRunID,
+			SubmissionID:  run.SubmissionID,
+			AttemptNo:     run.AttemptNo,
+			Verdict:       run.Verdict,
+			Status:        run.Status,
+			ErrorMessage:  run.ErrorMessage,
+			AttemptCount:  run.AttemptCount,
+			FailureType:   run.FailureType,
+			StrategyPath:  run.StrategyPath,
+			ToolingConfig: run.ToolingConfig,
+			ToolCallCount: run.ToolCallCount,
+			CreatedAt:     run.CreatedAt,
 		})
 	}
 
@@ -241,6 +338,7 @@ func toExperimentResponse(output *service.ExperimentOutput) dto.ExperimentRespon
 		Model:               output.Model,
 		PromptName:          output.PromptName,
 		AgentName:           output.AgentName,
+		ToolingConfig:       output.ToolingConfig,
 		Status:              output.Status,
 		TotalCount:          output.TotalCount,
 		SuccessCount:        output.SuccessCount,
@@ -296,36 +394,38 @@ func toExperimentCompareResponse(output *service.ExperimentCompareOutput) dto.Ex
 	}
 
 	return dto.ExperimentCompareResponse{
-		ID:                    output.ID,
-		Name:                  output.Name,
-		CompareDimension:      output.CompareDimension,
-		BaselineValue:         output.BaselineValue,
-		CandidateValue:        output.CandidateValue,
-		BaselinePromptName:    output.BaselinePromptName,
-		CandidatePromptName:   output.CandidatePromptName,
-		BaselineAgentName:     output.BaselineAgentName,
-		CandidateAgentName:    output.CandidateAgentName,
-		ProblemIDs:            output.ProblemIDs,
-		BaselineExperimentID:  output.BaselineExperimentID,
-		CandidateExperimentID: output.CandidateExperimentID,
-		BaselineSummary:       baseline,
-		CandidateSummary:      candidate,
-		BaselineDistribution:  output.BaselineDistribution,
-		CandidateDistribution: output.CandidateDistribution,
-		DeltaDistribution:     output.DeltaDistribution,
-		CostComparison:        output.CostComparison,
-		ComparisonSummary:     output.ComparisonSummary,
-		ImprovedCount:         output.ImprovedCount,
-		RegressedCount:        output.RegressedCount,
-		ChangedNonACCount:     output.ChangedNonACCount,
-		ProblemSummaries:      problems,
-		HighlightedProblems:   highlighted,
-		DeltaACCount:          output.DeltaACCount,
-		DeltaFailedCount:      output.DeltaFailedCount,
-		Status:                output.Status,
-		ErrorMessage:          output.ErrorMessage,
-		CreatedAt:             output.CreatedAt,
-		UpdatedAt:             output.UpdatedAt,
+		ID:                     output.ID,
+		Name:                   output.Name,
+		CompareDimension:       output.CompareDimension,
+		BaselineValue:          output.BaselineValue,
+		CandidateValue:         output.CandidateValue,
+		BaselinePromptName:     output.BaselinePromptName,
+		CandidatePromptName:    output.CandidatePromptName,
+		BaselineAgentName:      output.BaselineAgentName,
+		CandidateAgentName:     output.CandidateAgentName,
+		BaselineToolingConfig:  output.BaselineToolingConfig,
+		CandidateToolingConfig: output.CandidateToolingConfig,
+		ProblemIDs:             output.ProblemIDs,
+		BaselineExperimentID:   output.BaselineExperimentID,
+		CandidateExperimentID:  output.CandidateExperimentID,
+		BaselineSummary:        baseline,
+		CandidateSummary:       candidate,
+		BaselineDistribution:   output.BaselineDistribution,
+		CandidateDistribution:  output.CandidateDistribution,
+		DeltaDistribution:      output.DeltaDistribution,
+		CostComparison:         output.CostComparison,
+		ComparisonSummary:      output.ComparisonSummary,
+		ImprovedCount:          output.ImprovedCount,
+		RegressedCount:         output.RegressedCount,
+		ChangedNonACCount:      output.ChangedNonACCount,
+		ProblemSummaries:       problems,
+		HighlightedProblems:    highlighted,
+		DeltaACCount:           output.DeltaACCount,
+		DeltaFailedCount:       output.DeltaFailedCount,
+		Status:                 output.Status,
+		ErrorMessage:           output.ErrorMessage,
+		CreatedAt:              output.CreatedAt,
+		UpdatedAt:              output.UpdatedAt,
 	}
 }
 
@@ -376,6 +476,7 @@ func toExperimentRepeatResponse(output *service.ExperimentRepeatOutput) dto.Expe
 		Model:                      output.Model,
 		PromptName:                 output.PromptName,
 		AgentName:                  output.AgentName,
+		ToolingConfig:              output.ToolingConfig,
 		ProblemIDs:                 output.ProblemIDs,
 		RepeatCount:                output.RepeatCount,
 		ExperimentIDs:              output.ExperimentIDs,
@@ -396,5 +497,67 @@ func toExperimentRepeatResponse(output *service.ExperimentRepeatOutput) dto.Expe
 		MostUnstableProblems:       unstable,
 		CreatedAt:                  output.CreatedAt,
 		UpdatedAt:                  output.UpdatedAt,
+	}
+}
+
+func toExperimentRunTraceResponse(output *service.ExperimentRunTraceOutput) dto.ExperimentRunTraceResponse {
+	timeline := make([]dto.ExperimentRunTraceEventResponse, 0, len(output.Timeline))
+	for _, event := range output.Timeline {
+		timeline = append(timeline, dto.ExperimentRunTraceEventResponse{
+			ID:         event.ID,
+			SequenceNo: event.SequenceNo,
+			StepType:   event.StepType,
+			Content:    event.Content,
+			Metadata:   event.Metadata,
+			CreatedAt:  event.CreatedAt,
+		})
+	}
+
+	var aiSolveRun *dto.ExperimentTraceAISolveRunResponse
+	if output.AISolveRun != nil {
+		aiSolveRun = &dto.ExperimentTraceAISolveRunResponse{
+			ID:             output.AISolveRun.ID,
+			Status:         output.AISolveRun.Status,
+			Verdict:        output.AISolveRun.Verdict,
+			AttemptCount:   output.AISolveRun.AttemptCount,
+			FailureType:    output.AISolveRun.FailureType,
+			StrategyPath:   output.AISolveRun.StrategyPath,
+			ToolingConfig:  output.AISolveRun.ToolingConfig,
+			ToolCallCount:  output.AISolveRun.ToolCallCount,
+			TokenInput:     output.AISolveRun.TokenInput,
+			TokenOutput:    output.AISolveRun.TokenOutput,
+			LLMLatencyMS:   output.AISolveRun.LLMLatencyMS,
+			TotalLatencyMS: output.AISolveRun.TotalLatencyMS,
+		}
+	}
+
+	var submission *dto.ExperimentTraceSubmissionResponse
+	if output.Submission != nil {
+		submission = &dto.ExperimentTraceSubmissionResponse{
+			ID:          output.Submission.ID,
+			ProblemID:   output.Submission.ProblemID,
+			Language:    output.Submission.Language,
+			SourceType:  output.Submission.SourceType,
+			Verdict:     output.Submission.Verdict,
+			RuntimeMS:   output.Submission.RuntimeMS,
+			MemoryKB:    output.Submission.MemoryKB,
+			PassedCount: output.Submission.PassedCount,
+			TotalCount:  output.Submission.TotalCount,
+		}
+	}
+
+	return dto.ExperimentRunTraceResponse{
+		ExperimentRunID: output.ExperimentRunID,
+		ExperimentID:    output.ExperimentID,
+		ProblemID:       output.ProblemID,
+		AISolveRunID:    output.AISolveRunID,
+		SubmissionID:    output.SubmissionID,
+		AttemptNo:       output.AttemptNo,
+		Verdict:         output.Verdict,
+		Status:          output.Status,
+		ErrorMessage:    output.ErrorMessage,
+		Timeline:        timeline,
+		AISolveRun:      aiSolveRun,
+		Submission:      submission,
 	}
 }

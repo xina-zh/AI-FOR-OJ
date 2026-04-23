@@ -90,6 +90,19 @@ func NewClient(cfg config.LLMConfig, logger *slog.Logger) (Client, error) {
 				endpoint:    glmEndpoint,
 			})
 		}
+		if strings.TrimSpace(cfg.DeepSeekBaseURL) != "" || strings.TrimSpace(cfg.DeepSeekAPIKey) != "" || strings.TrimSpace(cfg.DeepSeekModelPrefix) != "" {
+			if strings.TrimSpace(cfg.DeepSeekAPIKey) == "" {
+				return nil, fmt.Errorf("llm deepseek api key is required when deepseek route is configured")
+			}
+			deepseekEndpoint, err := newOpenAICompatibleEndpoint(defaultString(cfg.DeepSeekBaseURL, "https://api.deepseek.com"), cfg.DeepSeekAPIKey)
+			if err != nil {
+				return nil, fmt.Errorf("invalid llm deepseek route: %w", err)
+			}
+			routes = append(routes, modelEndpointRoute{
+				modelPrefix: defaultString(cfg.DeepSeekModelPrefix, "deepseek-"),
+				endpoint:    deepseekEndpoint,
+			})
+		}
 
 		return &OpenAICompatibleClient{
 			endpoint: defaultEndpoint,

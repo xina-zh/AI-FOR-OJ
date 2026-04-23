@@ -12,12 +12,14 @@ import (
 	"ai-for-oj/internal/model"
 	"ai-for-oj/internal/prompt"
 	"ai-for-oj/internal/repository"
+	"ai-for-oj/internal/tooling"
 )
 
 const (
-	ExperimentCompareDimensionModel  = "model"
-	ExperimentCompareDimensionPrompt = "prompt"
-	ExperimentCompareDimensionAgent  = "agent"
+	ExperimentCompareDimensionModel   = "model"
+	ExperimentCompareDimensionPrompt  = "prompt"
+	ExperimentCompareDimensionAgent   = "agent"
+	ExperimentCompareDimensionTooling = "tooling"
 )
 
 type ExperimentRunner interface {
@@ -26,14 +28,16 @@ type ExperimentRunner interface {
 }
 
 type CompareExperimentInput struct {
-	Name                string
-	ProblemIDs          []uint
-	BaselineModel       string
-	CandidateModel      string
-	BaselinePromptName  string
-	CandidatePromptName string
-	BaselineAgentName   string
-	CandidateAgentName  string
+	Name                   string
+	ProblemIDs             []uint
+	BaselineModel          string
+	CandidateModel         string
+	BaselinePromptName     string
+	CandidatePromptName    string
+	BaselineAgentName      string
+	CandidateAgentName     string
+	BaselineToolingConfig  string
+	CandidateToolingConfig string
 }
 
 type ExperimentCompareProblemSummary struct {
@@ -101,36 +105,38 @@ type ExperimentCompareSummary struct {
 }
 
 type ExperimentCompareOutput struct {
-	ID                    uint                                  `json:"id"`
-	Name                  string                                `json:"name"`
-	CompareDimension      string                                `json:"compare_dimension"`
-	BaselineValue         string                                `json:"baseline_value"`
-	CandidateValue        string                                `json:"candidate_value"`
-	BaselinePromptName    string                                `json:"baseline_prompt_name"`
-	CandidatePromptName   string                                `json:"candidate_prompt_name"`
-	BaselineAgentName     string                                `json:"baseline_agent_name"`
-	CandidateAgentName    string                                `json:"candidate_agent_name"`
-	ProblemIDs            []uint                                `json:"problem_ids"`
-	BaselineExperimentID  uint                                  `json:"baseline_experiment_id"`
-	CandidateExperimentID uint                                  `json:"candidate_experiment_id"`
-	BaselineSummary       *ExperimentOutput                     `json:"baseline_summary,omitempty"`
-	CandidateSummary      *ExperimentOutput                     `json:"candidate_summary,omitempty"`
-	BaselineDistribution  VerdictDistribution                   `json:"baseline_verdict_distribution"`
-	CandidateDistribution VerdictDistribution                   `json:"candidate_verdict_distribution"`
-	DeltaDistribution     VerdictDistribution                   `json:"delta_verdict_distribution"`
-	CostComparison        ExperimentCompareCostComparison       `json:"cost_comparison"`
-	ComparisonSummary     ExperimentCompareSummary              `json:"comparison_summary"`
-	ImprovedCount         int                                   `json:"improved_count"`
-	RegressedCount        int                                   `json:"regressed_count"`
-	ChangedNonACCount     int                                   `json:"changed_non_ac_count"`
-	ProblemSummaries      []ExperimentCompareProblemSummary     `json:"problem_summaries"`
-	HighlightedProblems   []ExperimentCompareHighlightedProblem `json:"highlighted_problems"`
-	DeltaACCount          int                                   `json:"delta_ac_count"`
-	DeltaFailedCount      int                                   `json:"delta_failed_count"`
-	Status                string                                `json:"status"`
-	ErrorMessage          string                                `json:"error_message,omitempty"`
-	CreatedAt             time.Time                             `json:"created_at"`
-	UpdatedAt             time.Time                             `json:"updated_at"`
+	ID                     uint                                  `json:"id"`
+	Name                   string                                `json:"name"`
+	CompareDimension       string                                `json:"compare_dimension"`
+	BaselineValue          string                                `json:"baseline_value"`
+	CandidateValue         string                                `json:"candidate_value"`
+	BaselinePromptName     string                                `json:"baseline_prompt_name"`
+	CandidatePromptName    string                                `json:"candidate_prompt_name"`
+	BaselineAgentName      string                                `json:"baseline_agent_name"`
+	CandidateAgentName     string                                `json:"candidate_agent_name"`
+	BaselineToolingConfig  string                                `json:"baseline_tooling_config"`
+	CandidateToolingConfig string                                `json:"candidate_tooling_config"`
+	ProblemIDs             []uint                                `json:"problem_ids"`
+	BaselineExperimentID   uint                                  `json:"baseline_experiment_id"`
+	CandidateExperimentID  uint                                  `json:"candidate_experiment_id"`
+	BaselineSummary        *ExperimentOutput                     `json:"baseline_summary,omitempty"`
+	CandidateSummary       *ExperimentOutput                     `json:"candidate_summary,omitempty"`
+	BaselineDistribution   VerdictDistribution                   `json:"baseline_verdict_distribution"`
+	CandidateDistribution  VerdictDistribution                   `json:"candidate_verdict_distribution"`
+	DeltaDistribution      VerdictDistribution                   `json:"delta_verdict_distribution"`
+	CostComparison         ExperimentCompareCostComparison       `json:"cost_comparison"`
+	ComparisonSummary      ExperimentCompareSummary              `json:"comparison_summary"`
+	ImprovedCount          int                                   `json:"improved_count"`
+	RegressedCount         int                                   `json:"regressed_count"`
+	ChangedNonACCount      int                                   `json:"changed_non_ac_count"`
+	ProblemSummaries       []ExperimentCompareProblemSummary     `json:"problem_summaries"`
+	HighlightedProblems    []ExperimentCompareHighlightedProblem `json:"highlighted_problems"`
+	DeltaACCount           int                                   `json:"delta_ac_count"`
+	DeltaFailedCount       int                                   `json:"delta_failed_count"`
+	Status                 string                                `json:"status"`
+	ErrorMessage           string                                `json:"error_message,omitempty"`
+	CreatedAt              time.Time                             `json:"created_at"`
+	UpdatedAt              time.Time                             `json:"updated_at"`
 }
 
 type ExperimentCompareListInput struct {
@@ -188,6 +194,14 @@ func (s *ExperimentCompareService) Compare(ctx context.Context, input CompareExp
 	if err != nil {
 		return nil, err
 	}
+	_, baselineToolingConfig, err := tooling.ResolveConfig(input.BaselineToolingConfig)
+	if err != nil {
+		return nil, err
+	}
+	_, candidateToolingConfig, err := tooling.ResolveConfig(input.CandidateToolingConfig)
+	if err != nil {
+		return nil, err
+	}
 	compareDimension, baselineValue, candidateValue := resolveCompareDimensionAndValues(
 		baselineModel,
 		candidateModel,
@@ -195,30 +209,35 @@ func (s *ExperimentCompareService) Compare(ctx context.Context, input CompareExp
 		candidatePromptName,
 		baselineAgentName,
 		candidateAgentName,
+		baselineToolingConfig,
+		candidateToolingConfig,
 	)
 
 	compare := &model.ExperimentCompare{
-		Name:                defaultCompareName(input.Name),
-		CompareDimension:    compareDimension,
-		BaselineValue:       baselineValue,
-		CandidateValue:      candidateValue,
-		BaselinePromptName:  baselinePromptName,
-		CandidatePromptName: candidatePromptName,
-		BaselineAgentName:   baselineAgentName,
-		CandidateAgentName:  candidateAgentName,
-		ProblemIDs:          string(problemIDsJSON),
-		Status:              model.ExperimentCompareStatusRunning,
+		Name:                   defaultCompareName(input.Name),
+		CompareDimension:       compareDimension,
+		BaselineValue:          baselineValue,
+		CandidateValue:         candidateValue,
+		BaselinePromptName:     baselinePromptName,
+		CandidatePromptName:    candidatePromptName,
+		BaselineAgentName:      baselineAgentName,
+		CandidateAgentName:     candidateAgentName,
+		BaselineToolingConfig:  baselineToolingConfig,
+		CandidateToolingConfig: candidateToolingConfig,
+		ProblemIDs:             string(problemIDsJSON),
+		Status:                 model.ExperimentCompareStatusRunning,
 	}
 	if err := s.compares.Create(ctx, compare); err != nil {
 		return nil, fmt.Errorf("create experiment compare: %w", err)
 	}
 
 	baseline, err := s.experiments.Run(ctx, RunExperimentInput{
-		Name:       compare.Name + "-baseline",
-		ProblemIDs: input.ProblemIDs,
-		Model:      baselineModel,
-		PromptName: baselinePromptName,
-		AgentName:  baselineAgentName,
+		Name:          compare.Name + "-baseline",
+		ProblemIDs:    input.ProblemIDs,
+		Model:         baselineModel,
+		PromptName:    baselinePromptName,
+		AgentName:     baselineAgentName,
+		ToolingConfig: baselineToolingConfig,
 		OnExperimentCreated: func(experimentID uint) error {
 			compare.BaselineExperimentID = &experimentID
 			if err := s.compares.Update(ctx, compare); err != nil {
@@ -233,11 +252,12 @@ func (s *ExperimentCompareService) Compare(ctx context.Context, input CompareExp
 	compare.BaselineExperimentID = &baseline.ID
 
 	candidate, err := s.experiments.Run(ctx, RunExperimentInput{
-		Name:       compare.Name + "-candidate",
-		ProblemIDs: input.ProblemIDs,
-		Model:      candidateModel,
-		PromptName: candidatePromptName,
-		AgentName:  candidateAgentName,
+		Name:          compare.Name + "-candidate",
+		ProblemIDs:    input.ProblemIDs,
+		Model:         candidateModel,
+		PromptName:    candidatePromptName,
+		AgentName:     candidateAgentName,
+		ToolingConfig: candidateToolingConfig,
 		OnExperimentCreated: func(experimentID uint) error {
 			compare.CandidateExperimentID = &experimentID
 			if err := s.compares.Update(ctx, compare); err != nil {
@@ -264,36 +284,38 @@ func (s *ExperimentCompareService) Compare(ctx context.Context, input CompareExp
 	costComparison := buildExperimentCompareCostComparison(baseline, candidate)
 
 	return &ExperimentCompareOutput{
-		ID:                    compare.ID,
-		Name:                  compare.Name,
-		CompareDimension:      compare.CompareDimension,
-		BaselineValue:         compare.BaselineValue,
-		CandidateValue:        compare.CandidateValue,
-		BaselinePromptName:    prompt.DisplaySolvePromptName(compare.BaselinePromptName),
-		CandidatePromptName:   prompt.DisplaySolvePromptName(compare.CandidatePromptName),
-		BaselineAgentName:     agent.DisplaySolveAgentName(compare.BaselineAgentName),
-		CandidateAgentName:    agent.DisplaySolveAgentName(compare.CandidateAgentName),
-		ProblemIDs:            append([]uint(nil), input.ProblemIDs...),
-		BaselineExperimentID:  baseline.ID,
-		CandidateExperimentID: candidate.ID,
-		BaselineSummary:       baseline,
-		CandidateSummary:      candidate,
-		BaselineDistribution:  baseline.VerdictDistribution,
-		CandidateDistribution: candidate.VerdictDistribution,
-		DeltaDistribution:     DiffVerdictDistribution(candidate.VerdictDistribution, baseline.VerdictDistribution),
-		CostComparison:        costComparison,
-		ComparisonSummary:     buildExperimentCompareSummary(baseline, candidate, costComparison),
-		ImprovedCount:         improvedCount,
-		RegressedCount:        regressedCount,
-		ChangedNonACCount:     changedNonACCount,
-		ProblemSummaries:      problemSummaries,
-		HighlightedProblems:   highlightedProblems,
-		DeltaACCount:          compare.DeltaACCount,
-		DeltaFailedCount:      compare.DeltaFailedCount,
-		Status:                compare.Status,
-		ErrorMessage:          compare.ErrorMessage,
-		CreatedAt:             compare.CreatedAt,
-		UpdatedAt:             compare.UpdatedAt,
+		ID:                     compare.ID,
+		Name:                   compare.Name,
+		CompareDimension:       compare.CompareDimension,
+		BaselineValue:          compare.BaselineValue,
+		CandidateValue:         compare.CandidateValue,
+		BaselinePromptName:     prompt.DisplaySolvePromptName(compare.BaselinePromptName),
+		CandidatePromptName:    prompt.DisplaySolvePromptName(compare.CandidatePromptName),
+		BaselineAgentName:      agent.DisplaySolveAgentName(compare.BaselineAgentName),
+		CandidateAgentName:     agent.DisplaySolveAgentName(compare.CandidateAgentName),
+		BaselineToolingConfig:  compare.BaselineToolingConfig,
+		CandidateToolingConfig: compare.CandidateToolingConfig,
+		ProblemIDs:             append([]uint(nil), input.ProblemIDs...),
+		BaselineExperimentID:   baseline.ID,
+		CandidateExperimentID:  candidate.ID,
+		BaselineSummary:        baseline,
+		CandidateSummary:       candidate,
+		BaselineDistribution:   baseline.VerdictDistribution,
+		CandidateDistribution:  candidate.VerdictDistribution,
+		DeltaDistribution:      DiffVerdictDistribution(candidate.VerdictDistribution, baseline.VerdictDistribution),
+		CostComparison:         costComparison,
+		ComparisonSummary:      buildExperimentCompareSummary(baseline, candidate, costComparison),
+		ImprovedCount:          improvedCount,
+		RegressedCount:         regressedCount,
+		ChangedNonACCount:      changedNonACCount,
+		ProblemSummaries:       problemSummaries,
+		HighlightedProblems:    highlightedProblems,
+		DeltaACCount:           compare.DeltaACCount,
+		DeltaFailedCount:       compare.DeltaFailedCount,
+		Status:                 compare.Status,
+		ErrorMessage:           compare.ErrorMessage,
+		CreatedAt:              compare.CreatedAt,
+		UpdatedAt:              compare.UpdatedAt,
 	}, nil
 }
 
@@ -330,36 +352,38 @@ func (s *ExperimentCompareService) Get(ctx context.Context, compareID uint) (*Ex
 	costComparison := buildExperimentCompareCostComparison(baseline, candidate)
 
 	return &ExperimentCompareOutput{
-		ID:                    compare.ID,
-		Name:                  compare.Name,
-		CompareDimension:      compare.CompareDimension,
-		BaselineValue:         compare.BaselineValue,
-		CandidateValue:        compare.CandidateValue,
-		BaselinePromptName:    prompt.DisplaySolvePromptName(compare.BaselinePromptName),
-		CandidatePromptName:   prompt.DisplaySolvePromptName(compare.CandidatePromptName),
-		BaselineAgentName:     agent.DisplaySolveAgentName(compare.BaselineAgentName),
-		CandidateAgentName:    agent.DisplaySolveAgentName(compare.CandidateAgentName),
-		ProblemIDs:            problemIDs,
-		BaselineExperimentID:  derefUint(compare.BaselineExperimentID),
-		CandidateExperimentID: derefUint(compare.CandidateExperimentID),
-		BaselineSummary:       baseline,
-		CandidateSummary:      candidate,
-		BaselineDistribution:  verdictDistributionOf(baseline),
-		CandidateDistribution: verdictDistributionOf(candidate),
-		DeltaDistribution:     DiffVerdictDistribution(verdictDistributionOf(candidate), verdictDistributionOf(baseline)),
-		CostComparison:        costComparison,
-		ComparisonSummary:     buildExperimentCompareSummary(baseline, candidate, costComparison),
-		ImprovedCount:         improvedCount,
-		RegressedCount:        regressedCount,
-		ChangedNonACCount:     changedNonACCount,
-		ProblemSummaries:      problemSummaries,
-		HighlightedProblems:   highlightedProblems,
-		DeltaACCount:          compare.DeltaACCount,
-		DeltaFailedCount:      compare.DeltaFailedCount,
-		Status:                compare.Status,
-		ErrorMessage:          compare.ErrorMessage,
-		CreatedAt:             compare.CreatedAt,
-		UpdatedAt:             compare.UpdatedAt,
+		ID:                     compare.ID,
+		Name:                   compare.Name,
+		CompareDimension:       compare.CompareDimension,
+		BaselineValue:          compare.BaselineValue,
+		CandidateValue:         compare.CandidateValue,
+		BaselinePromptName:     prompt.DisplaySolvePromptName(compare.BaselinePromptName),
+		CandidatePromptName:    prompt.DisplaySolvePromptName(compare.CandidatePromptName),
+		BaselineAgentName:      agent.DisplaySolveAgentName(compare.BaselineAgentName),
+		CandidateAgentName:     agent.DisplaySolveAgentName(compare.CandidateAgentName),
+		BaselineToolingConfig:  compare.BaselineToolingConfig,
+		CandidateToolingConfig: compare.CandidateToolingConfig,
+		ProblemIDs:             problemIDs,
+		BaselineExperimentID:   derefUint(compare.BaselineExperimentID),
+		CandidateExperimentID:  derefUint(compare.CandidateExperimentID),
+		BaselineSummary:        baseline,
+		CandidateSummary:       candidate,
+		BaselineDistribution:   verdictDistributionOf(baseline),
+		CandidateDistribution:  verdictDistributionOf(candidate),
+		DeltaDistribution:      DiffVerdictDistribution(verdictDistributionOf(candidate), verdictDistributionOf(baseline)),
+		CostComparison:         costComparison,
+		ComparisonSummary:      buildExperimentCompareSummary(baseline, candidate, costComparison),
+		ImprovedCount:          improvedCount,
+		RegressedCount:         regressedCount,
+		ChangedNonACCount:      changedNonACCount,
+		ProblemSummaries:       problemSummaries,
+		HighlightedProblems:    highlightedProblems,
+		DeltaACCount:           compare.DeltaACCount,
+		DeltaFailedCount:       compare.DeltaFailedCount,
+		Status:                 compare.Status,
+		ErrorMessage:           compare.ErrorMessage,
+		CreatedAt:              compare.CreatedAt,
+		UpdatedAt:              compare.UpdatedAt,
 	}, nil
 }
 
@@ -418,34 +442,36 @@ func (s *ExperimentCompareService) toExperimentCompareListItem(ctx context.Conte
 	costComparison := buildExperimentCompareCostComparison(baseline, candidate)
 
 	return ExperimentCompareOutput{
-		ID:                    compare.ID,
-		Name:                  compare.Name,
-		CompareDimension:      compare.CompareDimension,
-		BaselineValue:         compare.BaselineValue,
-		CandidateValue:        compare.CandidateValue,
-		BaselinePromptName:    prompt.DisplaySolvePromptName(compare.BaselinePromptName),
-		CandidatePromptName:   prompt.DisplaySolvePromptName(compare.CandidatePromptName),
-		BaselineAgentName:     agent.DisplaySolveAgentName(compare.BaselineAgentName),
-		CandidateAgentName:    agent.DisplaySolveAgentName(compare.CandidateAgentName),
-		ProblemIDs:            problemIDs,
-		BaselineExperimentID:  derefUint(compare.BaselineExperimentID),
-		CandidateExperimentID: derefUint(compare.CandidateExperimentID),
-		BaselineDistribution:  verdictDistributionOf(baseline),
-		CandidateDistribution: verdictDistributionOf(candidate),
-		DeltaDistribution:     DiffVerdictDistribution(verdictDistributionOf(candidate), verdictDistributionOf(baseline)),
-		CostComparison:        costComparison,
-		ComparisonSummary:     buildExperimentCompareSummary(baseline, candidate, costComparison),
-		ImprovedCount:         improvedCount,
-		RegressedCount:        regressedCount,
-		ChangedNonACCount:     changedNonACCount,
-		ProblemSummaries:      problemSummaries,
-		HighlightedProblems:   highlightedProblems,
-		DeltaACCount:          compare.DeltaACCount,
-		DeltaFailedCount:      compare.DeltaFailedCount,
-		Status:                compare.Status,
-		ErrorMessage:          compare.ErrorMessage,
-		CreatedAt:             compare.CreatedAt,
-		UpdatedAt:             compare.UpdatedAt,
+		ID:                     compare.ID,
+		Name:                   compare.Name,
+		CompareDimension:       compare.CompareDimension,
+		BaselineValue:          compare.BaselineValue,
+		CandidateValue:         compare.CandidateValue,
+		BaselinePromptName:     prompt.DisplaySolvePromptName(compare.BaselinePromptName),
+		CandidatePromptName:    prompt.DisplaySolvePromptName(compare.CandidatePromptName),
+		BaselineAgentName:      agent.DisplaySolveAgentName(compare.BaselineAgentName),
+		CandidateAgentName:     agent.DisplaySolveAgentName(compare.CandidateAgentName),
+		BaselineToolingConfig:  compare.BaselineToolingConfig,
+		CandidateToolingConfig: compare.CandidateToolingConfig,
+		ProblemIDs:             problemIDs,
+		BaselineExperimentID:   derefUint(compare.BaselineExperimentID),
+		CandidateExperimentID:  derefUint(compare.CandidateExperimentID),
+		BaselineDistribution:   verdictDistributionOf(baseline),
+		CandidateDistribution:  verdictDistributionOf(candidate),
+		DeltaDistribution:      DiffVerdictDistribution(verdictDistributionOf(candidate), verdictDistributionOf(baseline)),
+		CostComparison:         costComparison,
+		ComparisonSummary:      buildExperimentCompareSummary(baseline, candidate, costComparison),
+		ImprovedCount:          improvedCount,
+		RegressedCount:         regressedCount,
+		ChangedNonACCount:      changedNonACCount,
+		ProblemSummaries:       problemSummaries,
+		HighlightedProblems:    highlightedProblems,
+		DeltaACCount:           compare.DeltaACCount,
+		DeltaFailedCount:       compare.DeltaFailedCount,
+		Status:                 compare.Status,
+		ErrorMessage:           compare.ErrorMessage,
+		CreatedAt:              compare.CreatedAt,
+		UpdatedAt:              compare.UpdatedAt,
 	}, nil
 }
 
@@ -464,13 +490,16 @@ func costSummaryOf(output *ExperimentOutput) ExperimentCostSummary {
 }
 
 func resolveCompareDimensionAndValues(
-	baselineModel, candidateModel, baselinePromptName, candidatePromptName, baselineAgentName, candidateAgentName string,
+	baselineModel, candidateModel, baselinePromptName, candidatePromptName, baselineAgentName, candidateAgentName, baselineToolingConfig, candidateToolingConfig string,
 ) (dimension, baselineValue, candidateValue string) {
 	if baselineModel == candidateModel && baselinePromptName != candidatePromptName {
 		return ExperimentCompareDimensionPrompt, baselinePromptName, candidatePromptName
 	}
 	if baselineModel == candidateModel && baselinePromptName == candidatePromptName && baselineAgentName != candidateAgentName {
 		return ExperimentCompareDimensionAgent, baselineAgentName, candidateAgentName
+	}
+	if baselineModel == candidateModel && baselinePromptName == candidatePromptName && baselineAgentName == candidateAgentName && baselineToolingConfig != candidateToolingConfig {
+		return ExperimentCompareDimensionTooling, baselineToolingConfig, candidateToolingConfig
 	}
 	return ExperimentCompareDimensionModel, baselineModel, candidateModel
 }

@@ -16,6 +16,7 @@ import (
 	"ai-for-oj/internal/runtime"
 	"ai-for-oj/internal/sandbox"
 	"ai-for-oj/internal/service"
+	"ai-for-oj/internal/tooling"
 )
 
 type Container struct {
@@ -24,6 +25,8 @@ type Container struct {
 	DB     *gorm.DB
 	SQLDB  *sql.DB
 	Server *runtime.App
+
+	AISolveAttemptRepository repository.AISolveAttemptRepository
 }
 
 func Build(configPath string) (*Container, error) {
@@ -49,6 +52,7 @@ func Build(configPath string) (*Container, error) {
 	testCaseRepository := repository.NewTestCaseRepository(db)
 	submissionRepository := repository.NewSubmissionRepository(db)
 	aiSolveRunRepository := repository.NewAISolveRunRepository(db)
+	aiSolveAttemptRepository := repository.NewAISolveAttemptRepository(db)
 	experimentRepository := repository.NewExperimentRepository(db)
 	experimentRepeatRepository := repository.NewExperimentRepeatRepository(db)
 	experimentCompareRepository := repository.NewExperimentCompareRepository(db)
@@ -66,7 +70,10 @@ func Build(configPath string) (*Container, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init llm client: %w", err)
 	}
-	aiSolveService := service.NewAISolveService(problemRepository, aiSolveRunRepository, llmClient, judgeSubmissionService, cfg.LLM.Model)
+	toolingRegistry := tooling.NewRegistry()
+	toolingRegistry.Register(tooling.NewSampleJudgeTool(judgeEngine))
+	aiSolveService := service.NewAISolveService(problemRepository, aiSolveRunRepository, llmClient, judgeSubmissionService, cfg.LLM.Model, aiSolveAttemptRepository)
+	aiSolveService.SetToolingRegistry(toolingRegistry)
 	aiHandler := handler.NewAIHandler(aiSolveService)
 	metaHandler := handler.NewMetaHandler(cfg.LLM.Model)
 	experimentService := service.NewExperimentService(experimentRepository, aiSolveService, cfg.LLM.Model)
@@ -80,10 +87,11 @@ func Build(configPath string) (*Container, error) {
 	})
 
 	return &Container{
-		Config: cfg,
-		Logger: logger,
-		DB:     db,
-		SQLDB:  sqlDB,
-		Server: server,
+		Config:                   cfg,
+		Logger:                   logger,
+		DB:                       db,
+		SQLDB:                    sqlDB,
+		Server:                   server,
+		AISolveAttemptRepository: aiSolveAttemptRepository,
 	}, nil
 }

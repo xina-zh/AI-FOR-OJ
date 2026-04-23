@@ -6,7 +6,9 @@ type ExperimentOptionResponse struct {
 }
 
 type ExperimentOptionsResponse struct {
-	DefaultModel string                     `json:"default_model"`
-	Prompts      []ExperimentOptionResponse `json:"prompts"`
-	Agents       []ExperimentOptionResponse `json:"agents"`
+	DefaultModel   string                     `json:"default_model"`
+	Models         []ExperimentOptionResponse `json:"models"`
+	Prompts        []ExperimentOptionResponse `json:"prompts"`
+	Agents         []ExperimentOptionResponse `json:"agents"`
+	ToolingOptions []ExperimentOptionResponse `json:"tooling_options"`
 }
